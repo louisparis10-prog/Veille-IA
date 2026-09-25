@@ -1,6 +1,9 @@
 """Stockage PostgreSQL en ligne ; SQLite conservé pour l'utilisation locale."""
+import json
 import os
 import sqlite3
+import time
+import uuid
 from contextlib import contextmanager
 
 class PostgresConnection:
@@ -36,8 +39,30 @@ def collection_lock(sqlite_path):
     if not os.environ.get('DATABASE_URL'):
         yield True
         return
-    # Verrou transactionnel compatible avec la connexion mutualisée Neon.
-    # Il empêche une collecte Render et une collecte planifiée de se chevaucher.
+    # Une connexion gardée pendant tous les téléchargements peut être fermée par
+    # le pooler Neon. Une courte transaction réserve donc un bail, puis libère la
+    # connexion pendant le travail réseau.
+    token=uuid.uuid4().hex
+    now=time.time()
+    acquired=False
     with connect(sqlite_path) as c:
-        acquired=c.execute('SELECT pg_try_advisory_xact_lock(782361940) AS acquired').fetchone()['acquired']
+        mutex=c.execute('SELECT pg_try_advisory_xact_lock(782361940) AS acquired').fetchone()['acquired']
+        if mutex:
+            row=c.execute("SELECT value FROM settings WHERE key='collection_lease'").fetchone()
+            try: lease=json.loads(row['value']) if row else {}
+            except Exception: lease={}
+            if now-float(lease.get('started',0))>3600:
+                c.execute("INSERT INTO settings(key,value) VALUES('collection_lease',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(json.dumps({'token':token,'started':now}),))
+                acquired=True
+    try:
         yield acquired
+    finally:
+        if acquired:
+            with connect(sqlite_path) as c:
+                mutex=c.execute('SELECT pg_try_advisory_xact_lock(782361940) AS acquired').fetchone()['acquired']
+                if mutex:
+                    row=c.execute("SELECT value FROM settings WHERE key='collection_lease'").fetchone()
+                    try: lease=json.loads(row['value']) if row else {}
+                    except Exception: lease={}
+                    if lease.get('token')==token:
+                        c.execute("DELETE FROM settings WHERE key='collection_lease'")

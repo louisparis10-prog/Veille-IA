@@ -36,6 +36,8 @@ L’IA configurée analyse les extraits des nouveaux articles. Pour une question
 
 La collecte GitHub Actions est programmée à 05 h 17 UTC et reste indépendante du PC et de la mise en veille Render. Elle nécessite le secret `DATABASE_URL` dans GitHub. GitHub peut retarder cet horaire. En local, garder le serveur lancé ; rattrapage au démarrage.
 
+La coordination des collectes utilise dans Neon un bail d'une heure. La connexion est libérée pendant les téléchargements et traductions, ce qui évite qu'un long traitement soit interrompu par le pooler PostgreSQL.
+
 ## Vérifications
 
 ```text
