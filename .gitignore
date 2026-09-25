@@ -13,3 +13,4 @@ tmp*/
 *.db
 *.pem
 *.key
+.setup/

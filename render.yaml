@@ -1,9 +1,9 @@
-services:
+﻿services:
   - type: web
     name: signal-veille-ia
     runtime: python
     plan: free
-    region: frankfurt
+    region: ohio
     buildCommand: pip install -r requirements.txt
     startCommand: python manage.py init && gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120
     healthCheckPath: /healthz
@@ -19,3 +19,4 @@ services:
         sync: false
       - key: OPENAI_MODEL
         value: gpt-4.1-mini
+

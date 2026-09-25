@@ -1,4 +1,4 @@
-name: Verification
+﻿name: Verification
 on: [push, pull_request]
 permissions:
   contents: read
@@ -7,7 +7,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:17
+        image: postgres:18
         env:
           POSTGRES_DB: signal_test
           POSTGRES_USER: signal
@@ -32,3 +32,4 @@ jobs:
           TEST_POSTGRES_URL: postgresql://signal:test_only_password@localhost:5432/signal_test
         run: python -m unittest test_postgres
       - run: node --check public/app.js
+
