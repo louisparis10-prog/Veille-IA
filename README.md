@@ -4,11 +4,11 @@ Application personnelle en français pour collecter les actualités officielles,
 
 ## Architecture en ligne
 
-- **GitHub** : dépôt privé, tests et collecte quotidienne planifiée.
+- **GitHub** : dépôt public autorisé par le propriétaire, tests et collecte quotidienne planifiée. Les données et secrets sont exclus du dépôt.
 - **Render** : serveur Flask/Gunicorn protégé par identifiant et mot de passe ; configuration `render.yaml`.
 - **Neon PostgreSQL** : articles, traductions, favoris, notes, projets et progression.
 
-La configuration est fournie ; les services doivent être créés dans les comptes du propriétaire et leurs secrets renseignés avant toute mise en ligne. Voir [DEPLOIEMENT.md](DEPLOIEMENT.md).
+Application déployée : https://signal-veille-ia.onrender.com. Dépôt : https://github.com/louisparis10-prog/Veille-IA. Les données sont conservées dans le projet Neon « Veille IA », en région Ohio. Voir [DEPLOIEMENT.md](DEPLOIEMENT.md).
 
 ## Utilisation locale
 
@@ -41,6 +41,6 @@ python -m unittest test_server test_web test_postgres
 node --check public/app.js
 ```
 
-Les tests PostgreSQL utilisent une base locale jetable via `TEST_POSTGRES_URL` et sont ignorés sans elle. Le flux de vérification GitHub crée automatiquement un PostgreSQL 17. Ne jamais utiliser une base de production pour les tests.
+Les tests PostgreSQL utilisent une base locale jetable via `TEST_POSTGRES_URL` et sont ignorés sans elle. Le flux de vérification GitHub crée automatiquement un PostgreSQL 18. Ne jamais utiliser une base de production pour les tests.
 
 Évolutions non incluses : catalogue d’outils, formations, bibliothèque de prompts, alertes externes, compétences et authentification multi-utilisateur. La version hébergée reste un espace personnel.

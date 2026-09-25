@@ -2,17 +2,26 @@
 
 Le dossier `veille-app` est la racine du dépôt GitHub. Les fichiers SQLite, les secrets et les dépendances locales sont exclus de Git. Le contenu reste en français.
 
-## 1. Dépôt GitHub privé
+## Installation actuelle
 
-Créer un dépôt privé `signal-veille-ia`, puis pousser le contenu de ce dossier sur `main`. Le flux de vérification teste SQLite, le serveur web, PostgreSQL 17 et l'import des données avant le déploiement automatique Render.
+- Application : https://signal-veille-ia.onrender.com
+- Dépôt public, autorisé par le propriétaire : https://github.com/louisparis10-prog/Veille-IA
+- Render : service `signal-veille-ia`, plan gratuit, région Ohio.
+- Neon : projet « Veille IA », base `neondb`, PostgreSQL 18, région Ohio.
+- Import initial vérifié : 75 articles, 150 traductions, 4 sources et les paramètres locaux.
+- Identifiant d'accès : `louis`. Le mot de passe est défini uniquement dans le secret Render `APP_PASSWORD`.
+
+## 1. Dépôt GitHub
+
+Le code est publié dans `louisparis10-prog/Veille-IA` sur `main`. Le flux de vérification teste SQLite, le serveur web, PostgreSQL 18 et l'import des données avant le déploiement automatique Render.
 
 ## 2. Projet Neon
 
-Créer un projet PostgreSQL en région Europe, idéalement Francfort, avec une base `signal`. Récupérer la chaîne de connexion dans **Connect**. La connexion mutualisée est compatible avec l'application. Conserver les paramètres TLS de Neon. Ne jamais coller la chaîne dans un message, un fichier suivi ou un journal.
+Le projet du propriétaire se trouve en région Ohio avec la base `neondb`. Récupérer la chaîne de connexion dans **Connect**. La connexion mutualisée est compatible avec l'application. Conserver les paramètres TLS de Neon. Ne jamais coller la chaîne dans un message, un fichier suivi ou un journal.
 
 ## 3. Service Render
 
-Créer un **Blueprint** à partir du dépôt GitHub et de `render.yaml`. Le service web utilise le plan gratuit, en région Francfort. Renseigner les secrets demandés :
+Le service a été créé depuis le dépôt GitHub, avec les mêmes réglages que `render.yaml`. Il utilise le plan gratuit, en région Ohio. Pour recréer une installation, le Blueprint peut aussi être utilisé. Secrets :
 
 | Variable | Valeur |
 | --- | --- |
