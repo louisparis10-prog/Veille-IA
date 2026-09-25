@@ -50,7 +50,11 @@ def main():
         elif args.command=='check':
             with server.conn() as c:
                 print(json.dumps({table:c.execute('SELECT COUNT(*) AS n FROM '+table).fetchone()['n'] for table in TABLES}))
-        else: print('Base de données initialisée.')
+        else:
+            import ideas
+            with server.database.collection_lock(server.DB) as acquired:
+                if acquired: ideas.generate_daily()
+            print('Base de données et sélection gratuite initialisées.')
         return 0
     except Exception as error:
         print('Opération interrompue ('+type(error).__name__+'). Vérifiez la configuration et la connexion à la base.',file=sys.stderr)

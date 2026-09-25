@@ -11,6 +11,8 @@
     envVars:
       - key: APP_ENV
         value: production
+      - key: ALLOW_PAID_AI
+        value: 'false'
       - key: DATABASE_URL
         sync: false
       - key: APP_USERNAME

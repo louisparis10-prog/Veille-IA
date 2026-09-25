@@ -18,6 +18,32 @@ class Tests(unittest.TestCase):
             self.assertEqual(c.execute('SELECT COUNT(*) FROM articles').fetchone()[0],1)
             c.execute('UPDATE articles SET favorite=1,read=1')
         s=server.state(); self.assertEqual(s['articles'][0]['favorite'],1); self.assertEqual(s['articles'][0]['read'],1)
+    def test_free_daily_ideas_persist_and_rotate(self):
+        import ideas
+        from datetime import datetime, timedelta, timezone
+        seen=set()
+        with patch.object(server,'ai',side_effect=AssertionError('Aucun appel payant')):
+            for day in range(20):
+                with patch.object(ideas,'datetime') as clock:
+                    clock.now.return_value=datetime(2026,9,25,tzinfo=timezone.utc)+timedelta(days=day)
+                    self.assertEqual(ideas.generate_daily()['count'],3)
+                    current=ideas.read_daily()
+                    ids={i['id'] for i in current['ideas']}
+                    self.assertEqual(len(ids),3)
+                    self.assertFalse(ids & seen)
+                    seen.update(ids)
+                    self.assertEqual(ideas.generate_daily()['status'],'already_generated')
+                    self.assertEqual(ideas.read_daily(),current)
+        self.assertEqual(len(seen),60)
+
+    def test_free_mode_blocks_paid_calls_even_with_key(self):
+        with patch.dict(server.os.environ,{'OPENAI_API_KEY':'not-a-real-key','ALLOW_PAID_AI':''}),patch('urllib.request.urlopen') as network:
+            with self.assertRaises(server.AIUnavailable): server.ai('Bonjour')
+            status,payload=server.perform_action('/api/ask',{'question':'Bonjour'})
+            self.assertEqual(status,503)
+            self.assertIn('sans frais',payload['error'])
+            network.assert_not_called()
+
     def test_score_is_explained_and_bounded(self):
         a=server.classify('Copilot Power BI production maintenance qualité automatisation','')
         self.assertLessEqual(a['score'],100); self.assertGreaterEqual(a['score'],0); self.assertEqual(a['mode'],'Mots-clés'); self.assertIn('Correspondances',a['reason'])

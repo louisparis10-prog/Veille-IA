@@ -24,4 +24,5 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           APP_ENV: production
+          ALLOW_PAID_AI: 'false'
         run: python manage.py sync

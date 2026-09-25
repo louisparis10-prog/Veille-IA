@@ -16,13 +16,16 @@ Python 3.11+ suffit pour la version SQLite : double-cliquer sur `Lancer.cmd` ou 
 
 ## Fonctions
 
+- Mode sans frais API : aucun appel OpenAI tant que `ALLOW_PAID_AI` n’est pas explicitement activé. Une clé seule ne déclenche aucune dépense.
+- Trois pistes quotidiennes préparées : deux applications et une création, issues de 60 fiches pédagogiques. Rotation sans répétition pendant 20 jours puis reprise ; historique conservé sur 30 jours.
+- « Comprendre / poser une question » prépare un message modifiable à copier dans le compte ChatGPT de l’utilisateur. Ce n’est pas une conversation API intégrée ; aucun texte n’est envoyé automatiquement.
 - Quatre flux officiels : OpenAI, Microsoft 365, Power BI et Microsoft Fabric.
 - Collecte des 25 dernières entrées de chaque flux, historique et dédoublonnage par URL ou titre.
 - Titres et extraits traduits en français et conservés en base ; originaux préservés.
 - Synthèse déterministe des trois articles les mieux classés, dates et liens vers les sources.
 - Catégories, pertinence par mots-clés et pistes d’usage présentées comme des hypothèses.
 - Recherche, favoris, lecture, idées, tests, projets, notes et progression.
-- Analyse et assistant IA facultatifs via `OPENAI_API_KEY`, conservée côté serveur.
+- Analyse et assistant IA facultatifs via `OPENAI_API_KEY` et `ALLOW_PAID_AI=true`, désactivés par défaut conformément au souhait de ne rien payer.
 - Interface adaptée aux mobiles, thèmes clair et sombre.
 
 ## Services externes et limites
