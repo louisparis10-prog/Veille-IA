@@ -47,6 +47,18 @@ class Tests(unittest.TestCase):
     def test_score_is_explained_and_bounded(self):
         a=server.classify('Copilot Power BI production maintenance qualité automatisation','')
         self.assertLessEqual(a['score'],100); self.assertGreaterEqual(a['score'],0); self.assertEqual(a['mode'],'Mots-clés'); self.assertIn('Correspondances',a['reason'])
+    def test_article_guide_is_explicit_when_only_title_is_available(self):
+        guide=server.article_guide('New model','Titre repéré sur le domaine officiel via Google Actualités. Consultez la publication originale pour son contenu complet.','Éditeur','IA et innovation')
+        self.assertFalse(guide['details_available'])
+        self.assertIn('ne fournit pas',guide['key_points'][-1])
+        self.assertEqual(len(guide['checks']),3)
+
+    def test_article_guide_extracts_three_factual_points(self):
+        details='Première information suffisamment détaillée pour être retenue. Deuxième information suffisamment détaillée pour être retenue. Troisième information suffisamment détaillée pour être retenue. Quatrième information qui ne doit pas être ajoutée.'
+        guide=server.article_guide('Titre',details,'Éditeur','Automatisation')
+        self.assertTrue(guide['details_available'])
+        self.assertEqual(len(guide['key_points']),3)
+        self.assertIn('validation humaine',guide['checks'][2])
     def test_source_fallback_is_visible_and_persistent(self):
         name='OpenAI'; config=server.news_sources.BY_NAME[name]
         record=[('An official announcement','https://news.google.com/rss/articles/example','2026-09-25T00:00:00+00:00','Original excerpt')]

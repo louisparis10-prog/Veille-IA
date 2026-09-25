@@ -22,6 +22,7 @@ Python 3.11+ suffit pour la version SQLite : double-cliquer sur `Lancer.cmd` ou 
 - 26 sources couvrant les principaux acteurs IA : OpenAI, Microsoft, Google/DeepMind, Anthropic, Meta, AWS, NVIDIA, Mistral, DeepSeek, Alibaba/Qwen, Hugging Face, IBM, Cohere, xAI, Perplexity, Adobe, Stability AI, Runway, ElevenLabs, Midjourney, Apple et Salesforce. Flux officiels et relais Google Actualités limités aux domaines officiels ; couverture non exhaustive, sans API payante.
 - Collecte de 12 entrées récentes de chaque source par passage, historique et dédoublonnage par URL ou titre.
 - Titres et extraits traduits en français et conservés en base ; originaux préservés.
+- Fiche de lecture développée pour chaque actualité : résumé détaillé, points clés, intérêt possible, vérifications et temps de lecture. L'application signale explicitement les flux qui ne fournissent qu'un titre.
 - Synthèse déterministe des trois articles les mieux classés, dates et liens vers les sources.
 - Catégories, pertinence par mots-clés et pistes d’usage présentées comme des hypothèses.
 - Recherche et filtre par acteur/source, favoris, lecture, idées, tests, projets, notes et progression.

@@ -31,6 +31,34 @@ def clean(s):
     return html.unescape(re.sub('<[^>]+>', ' ', s or '')).strip()
 def get_setting(key):
     with conn() as c: return c.execute('SELECT value FROM settings WHERE key=?',(key,)).fetchone()['value']
+
+def article_guide(title, details, source, category):
+    """Construire une fiche de lecture factuelle, sans appel à une IA payante."""
+    generic='Titre repéré sur le domaine officiel via Google Actualités.'
+    has_details=bool(details and generic not in details and len(details.strip())>80)
+    sentences=[part.strip() for part in re.split(r'(?<=[.!?])\s+',details or '') if len(part.strip())>35]
+    points=[]
+    for sentence in sentences:
+        if sentence not in points:
+            points.append(sentence[:420])
+        if len(points)==3: break
+    if not points:
+        points=[f'{source} a publié une annonce intitulée « {title} ».']
+    if not has_details:
+        points.append('Le flux de veille ne fournit pas le texte détaillé de cette publication.')
+    checks=[
+        'Vérifier la disponibilité réelle de la fonction, sa région et les conditions du compte.',
+        'Vérifier les règles de confidentialité avant d’utiliser des données de l’entreprise.',
+        'Commencer par un essai limité avec des données fictives ou non sensibles.'
+    ]
+    if category=='Données et décisionnel':
+        checks[2]='Comparer les chiffres obtenus avec la source de données avant toute décision.'
+    elif category=='Automatisation':
+        checks[2]='Conserver une validation humaine avant toute action sur un système de production.'
+    elif category=='Copilot et productivité':
+        checks[2]='Mesurer le temps gagné et contrôler les réponses sur un petit échantillon.'
+    words=len((details or title).split())
+    return dict(key_points=points[:3],checks=checks,reading_minutes=max(1,round(words/180)),details_available=has_details)
 def classify(title, excerpt, interests=None):
     t=(title+' '+excerpt).lower(); terms=[x.strip().lower() for x in (interests if interests is not None else get_setting('interests')).split(',') if x.strip()]
     matches=[x for x in terms if x in t]
@@ -38,7 +66,7 @@ def classify(title, excerpt, interests=None):
     for label, words in [('Données et décisionnel',['power bi','fabric','analytics','data']),('Automatisation',['agent','automation','automatisation']),('Copilot et productivité',['copilot','microsoft 365'])]:
         if any(w in t for w in words): cat=label
     score=min(95,30+15*len(matches)+ (15 if cat!='IA & innovation' else 0))
-    return dict(category=cat,summary=excerpt[:650] or 'Le flux ne fournit pas de résumé. Consulter la source.',score=score,importance=50,services=matches,opportunity='Piste à valider : évaluer un cas limité dans '+(', '.join(matches) if matches else 'votre activité')+'. Comparer le temps gagné, la qualité et les contraintes de données.',mode='Mots-clés',reason='Correspondances : '+(', '.join(matches) or 'aucune')+'. Score indicatif, non évalué par IA.')
+    return dict(category=cat,summary=excerpt[:900] or 'Le flux ne fournit pas de résumé. Consulter la source.',score=score,importance=50,services=matches,opportunity='Piste à valider : évaluer un cas limité dans '+(', '.join(matches) if matches else 'votre activité')+'. Comparer le temps gagné, la qualité et les contraintes de données.',mode='Mots-clés',reason='Correspondances : '+(', '.join(matches) or 'aucune')+'. Score indicatif, non évalué par IA.')
 class AIUnavailable(Exception):
     pass
 
@@ -138,11 +166,12 @@ def collect():
     finally: pass
 def translate_articles():
     with conn() as c:
-        rows=c.execute('SELECT title,analysis FROM articles').fetchall()
+        rows=c.execute('SELECT title,excerpt,analysis FROM articles').fetchall()
     texts=[]
     for row in rows:
         texts.append(row['title'])
         texts.append(json.loads(row['analysis'])['summary'])
+        texts.append(row['excerpt'][:1800])
     return translation.populate(conn,texts)
 
 def scheduler():
@@ -162,11 +191,15 @@ def state():
             a['original_excerpt']=a['excerpt']
             title_fr=translation.cached(c,a['title'])
             summary_fr=translation.cached(c,a['summary'])
+            details_fr=translation.cached(c,a['excerpt'][:1800])
             a['translation_pending']=title_fr is None or summary_fr is None
+            a['details_pending']=details_fr is None
             a['title']=title_fr or 'Traduction du titre en attente — '+(a['source'] or 'source non renseignée')
             a['summary']=summary_fr or 'La traduction de cet extrait est momentanément indisponible. Relancez la collecte pour réessayer ou consultez la source originale.'
-            a['excerpt']=a['summary']
+            a['details']=details_fr or a['summary']
+            a['excerpt']=a['details']
             a['category']={'Data & BI':'Données et décisionnel','Copilot & productivité':'Copilot et productivité','IA & innovation':'IA et innovation'}.get(a['category'],a['category'])
+            a.update(article_guide(a['title'],a['details'],a['source'],a['category']))
         items=[dict(r) for r in c.execute('SELECT * FROM items ORDER BY id DESC')]
         for item in items:
             # Traduire les titres importés sans modifier les notes personnelles.
