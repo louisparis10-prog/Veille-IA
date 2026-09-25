@@ -47,6 +47,20 @@ class Tests(unittest.TestCase):
     def test_score_is_explained_and_bounded(self):
         a=server.classify('Copilot Power BI production maintenance qualité automatisation','')
         self.assertLessEqual(a['score'],100); self.assertGreaterEqual(a['score'],0); self.assertEqual(a['mode'],'Mots-clés'); self.assertIn('Correspondances',a['reason'])
+    def test_source_fallback_is_visible_and_persistent(self):
+        name='OpenAI'; config=server.news_sources.BY_NAME[name]
+        record=[('An official announcement','https://news.google.com/rss/articles/example','2026-09-25T00:00:00+00:00','Original excerpt')]
+        def fetch(url):
+            if url==config['feed']: raise OSError('Temporary failure')
+            self.assertEqual(url,config['fallback']); return record
+        with patch.object(server,'SOURCES',[(name,config['feed'])]),patch.object(server,'fetch_feed',side_effect=fetch),patch.object(server.translation,'translate_public',side_effect=lambda t:t):
+            server.sync()
+        state=server.state()
+        self.assertEqual(state['articles'][0]['collection_mode'],'Relais Google Actualités')
+        self.assertIn('relais Google',next(s['status'] for s in state['sources'] if s['name']==name))
+        self.assertEqual(len(state['sources']),26)
+        server.init()
+        self.assertEqual(len(server.state()['sources']),26)
     def test_feed_parsing(self):
         from io import BytesIO
         xml=b'<rss><channel><item><title>Official update</title><link>https://example.com/a?utm_source=rss</link><pubDate>Thu, 24 Sep 2026 10:00:00 GMT</pubDate><description>&lt;p&gt;Real excerpt&lt;/p&gt;</description></item><item><title>Bad link</title><link>javascript:alert(1)</link></item></channel></rss>'

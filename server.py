@@ -6,12 +6,13 @@ from email.utils import parsedate_to_datetime
 from contextlib import contextmanager
 import translation
 import database
+import news_sources
 
 ROOT = Path(__file__).parent
 DB = Path(os.environ.get('VEILLE_DB', str(ROOT / 'veille.sqlite3')))
 PORT = int(os.environ.get('PORT', '8765'))
 LOCK = threading.Lock()
-SOURCES = [('OpenAI', 'https://openai.com/news/rss.xml'), ('Microsoft 365', 'https://www.microsoft.com/en-us/microsoft-365/blog/feed/'), ('Power BI', 'https://powerbi.microsoft.com/en-us/blog/feed/'), ('Microsoft Fabric', 'https://blog.fabric.microsoft.com/en-us/blog/feed/')]
+SOURCES = news_sources.SOURCES
 @contextmanager
 def conn():
     with database.connect(DB) as c: yield c
@@ -24,7 +25,7 @@ def init():
         CREATE TABLE IF NOT EXISTS activity(day TEXT PRIMARY KEY);''')
         translation.initialize(c)
         c.execute("INSERT INTO settings VALUES('interests',?) ON CONFLICT DO NOTHING", ('maintenance, production, qualité, automatisation, Copilot, Power BI',))
-        for name,url in SOURCES: c.execute('INSERT INTO sources VALUES(?,?,?,?) ON CONFLICT DO NOTHING',(name,url,'Non synchronisé',None))
+        for name,url in SOURCES: c.execute('INSERT INTO sources VALUES(?,?,?,?) ON CONFLICT(name) DO UPDATE SET url=excluded.url',(name,url,'Non synchronisé',None))
 def clean(s):
     import html
     return html.unescape(re.sub('<[^>]+>', ' ', s or '')).strip()
@@ -82,7 +83,7 @@ def fetch_feed(url):
     entries=root.findall('.//item') or root.findall('.//{http://www.w3.org/2005/Atom}entry')
     if not entries: raise ValueError('Aucun article dans le flux')
     out=[]
-    for item in entries[:25]:
+    for item in entries[:100]:
         def field(*names):
             for child in item:
                 if child.tag.split('}')[-1] in names: return child.text or child.attrib.get('href','')
@@ -95,7 +96,7 @@ def fetch_feed(url):
             except Exception: pass
         u=urllib.parse.urlsplit(link); query=urllib.parse.parse_qsl(u.query); link=urllib.parse.urlunsplit((u.scheme,u.netloc,u.path,urllib.parse.urlencode([(k,v) for k,v in query if not k.startswith('utm_')]),''))
         out.append((title,link,published,clean(field('description','summary','content'))[:3000]))
-    return out
+    return sorted(out,key=lambda row:row[2] or '',reverse=True)[:25]
 def sync():
     if not LOCK.acquire(False): return {'message':'Synchronisation déjà en cours'}
     try:
@@ -109,15 +110,25 @@ def collect():
     try:
         for name,url in SOURCES:
             try:
-                records=fetch_feed(url)
+                config=news_sources.BY_NAME.get(name,{})
+                via_relay=config.get('relay',False)
+                try: records=fetch_feed(url)
+                except Exception:
+                    if via_relay or not config.get('fallback'): raise
+                    records=fetch_feed(config['fallback']); via_relay=True
+                records=records[:12]
                 for title,link,date,excerpt in records:
+                    if via_relay:
+                        if title.split(' - ')[0].strip().lower() in ('le chat','midjourney','home','news','blog'): continue
+                        excerpt='Titre repéré sur le domaine officiel via Google Actualités. Consultez la publication originale pour son contenu complet.'
                     ident=hashlib.sha256(re.sub(r'\W+','',title.lower()).encode()).hexdigest()[:24]
                     with conn() as c: exists=c.execute('SELECT 1 FROM articles WHERE id=? OR url=?',(ident,link)).fetchone()
                     if exists: continue
                     analysis=analyze(title,excerpt)
+                    analysis['collection_mode']='Relais Google Actualités' if via_relay else 'Flux officiel'
                     with conn() as c:
                         cursor=c.execute('INSERT INTO articles(id,title,url,source,published,excerpt,analysis) VALUES(?,?,?,?,?,?,?) ON CONFLICT DO NOTHING',(ident,title,link,name,date,excerpt,json.dumps(analysis,ensure_ascii=False))); added+=cursor.rowcount
-                status='OK · '+str(len(records))+' articles lus'
+                status='OK · '+str(len(records))+' entrées lues · '+('relais Google Actualités' if via_relay else 'flux officiel')
             except Exception: status='Échec de la collecte · source momentanément inaccessible'
             with conn() as c: c.execute('UPDATE sources SET status=?,checked=? WHERE name=?',(status,datetime.now(timezone.utc).isoformat(),name))
         translated=translate_articles()
@@ -162,7 +173,7 @@ def state():
             translated=translation.cached(c,item['title'])
             if translated: item['title']=translated
         import ideas
-        return dict(articles=articles,items=items,daily_ideas=ideas.read_daily(),sources=[dict(r) for r in c.execute('SELECT * FROM sources')],interests=get_setting('interests'),ai=bool(os.environ.get('OPENAI_API_KEY')) and os.environ.get('ALLOW_PAID_AI')=='true',syncing=LOCK.locked(),days=[r['day'] for r in c.execute('SELECT day FROM activity')])
+        return dict(articles=articles,items=items,daily_ideas=ideas.read_daily(),sources=[dict(r,official=news_sources.BY_NAME.get(r['name'],{}).get('official',r['url'])) for r in c.execute('SELECT * FROM sources ORDER BY name')],interests=get_setting('interests'),ai=bool(os.environ.get('OPENAI_API_KEY')) and os.environ.get('ALLOW_PAID_AI')=='true',syncing=LOCK.locked(),days=[r['day'] for r in c.execute('SELECT day FROM activity')])
 def perform_action(path,b):
     if path in ('/api/explain','/api/ai-check'):
         try:
