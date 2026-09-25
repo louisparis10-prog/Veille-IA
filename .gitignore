@@ -1,0 +1,15 @@
+*.sqlite3*
+__pycache__/
+.env
+.env.*
+!.env.example
+*.log
+.venv/
+.deps/
+.pytest_cache/
+*.zip
+tmp*/
+*.sqlite*
+*.db
+*.pem
+*.key
