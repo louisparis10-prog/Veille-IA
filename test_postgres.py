@@ -32,7 +32,7 @@ class PostgresTests(unittest.TestCase):
             c.execute('DROP SCHEMA '+self.schema+' CASCADE')
     def test_collect_deduplicate_translate_and_modify(self):
         record=[('Factory update','https://example.com/update',None,'New robot')]
-        with patch.object(server,'fetch_feed',return_value=record),patch.object(server.translation,'translate_public',return_value='Actualité traduite'):
+        with patch.object(server,'fetch_feed',return_value=record),patch.object(server,'enrich_record',side_effect=lambda r,c,v:r),patch.object(server.translation,'translate_public',return_value='Actualité traduite'):
             server.sync(); server.sync()
         state=server.state()
         self.assertEqual(len(state['articles']),1)

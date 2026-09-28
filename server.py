@@ -275,7 +275,7 @@ def collect():
             except Exception: status='Échec de la collecte · source momentanément inaccessible'
             with conn() as c: c.execute('UPDATE sources SET status=?,checked=? WHERE name=?',(status,datetime.now(timezone.utc).isoformat(),name))
         with conn() as c:
-            c.execute("DELETE FROM articles WHERE excerpt LIKE 'Titre repéré sur le domaine officiel via Google Actualités.%'")
+            c.execute('DELETE FROM articles WHERE excerpt LIKE ?',('Titre repéré sur le domaine officiel via Google Actualités.%',))
         translated=translate_articles()
         import ideas
         daily=ideas.generate_daily()
