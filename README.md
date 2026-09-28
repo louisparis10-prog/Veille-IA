@@ -20,9 +20,9 @@ Python 3.11+ suffit pour la version SQLite : double-cliquer sur `Lancer.cmd` ou 
 - Trois pistes quotidiennes préparées : deux applications et une création, issues de 60 fiches pédagogiques. Rotation sans répétition pendant 20 jours puis reprise ; historique conservé sur 30 jours.
 - « Comprendre / poser une question » prépare un message modifiable à copier dans le compte ChatGPT de l’utilisateur. Ce n’est pas une conversation API intégrée ; aucun texte n’est envoyé automatiquement.
 - 26 sources couvrant les principaux acteurs IA : OpenAI, Microsoft, Google/DeepMind, Anthropic, Meta, AWS, NVIDIA, Mistral, DeepSeek, Alibaba/Qwen, Hugging Face, IBM, Cohere, xAI, Perplexity, Adobe, Stability AI, Runway, ElevenLabs, Midjourney, Apple et Salesforce. Flux officiels et relais Google Actualités limités aux domaines officiels ; couverture non exhaustive, sans API payante.
-- Collecte de 12 entrées récentes de chaque source par passage, historique et dédoublonnage par URL ou titre.
+- Lecture de 12 entrées récentes par source et conservation des publications qui fournissent un extrait fiable, avec historique et dédoublonnage par URL ou titre.
 - Titres et extraits traduits en français et conservés en base ; originaux préservés.
-- Fiche de lecture développée pour chaque actualité : résumé détaillé, points clés, intérêt possible, vérifications et temps de lecture. L'application signale explicitement les flux qui ne fournissent qu'un titre.
+- Chaque actualité contient un extrait réellement récupéré sur la publication officielle, traduit en français, puis une fiche de lecture : informations à retenir, intérêt possible, vérifications et lien direct. Les résultats sans extrait fiable ne sont plus conservés.
 - Synthèse déterministe des trois articles les mieux classés, dates et liens vers les sources.
 - Catégories, pertinence par mots-clés et pistes d’usage présentées comme des hypothèses.
 - Recherche et filtre par acteur/source, favoris, lecture, idées, tests, projets, notes et progression.

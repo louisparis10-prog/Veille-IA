@@ -33,5 +33,5 @@ CATALOG=[
     ('Apple Machine Learning','https://machinelearning.apple.com/','','machinelearning.apple.com'),
     ('Salesforce IA','https://www.salesforce.com/blog/category/artificial-intelligence/','','salesforce.com/blog')
 ]
-BY_NAME={name:{'official':official,'feed':feed or relay(domain),'relay':not bool(feed),'fallback':relay(domain)} for name,official,feed,domain in CATALOG}
+BY_NAME={name:{'official':official,'feed':feed or relay(domain),'relay':not bool(feed),'fallback':relay(domain),'domain':domain.split('/')[0]} for name,official,feed,domain in CATALOG}
 SOURCES=[(name,config['feed']) for name,config in BY_NAME.items()]

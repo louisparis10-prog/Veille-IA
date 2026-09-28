@@ -1,5 +1,7 @@
 import os, json, sqlite3, threading, time, hashlib, re, urllib.request, urllib.parse, xml.etree.ElementTree as ET
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
+from html.parser import HTMLParser
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -28,7 +30,7 @@ def init():
         for name,url in SOURCES: c.execute('INSERT INTO sources VALUES(?,?,?,?) ON CONFLICT(name) DO UPDATE SET url=excluded.url',(name,url,'Non synchronisé',None))
 def clean(s):
     import html
-    return html.unescape(re.sub('<[^>]+>', ' ', s or '')).strip()
+    return re.sub(r'\s+',' ',html.unescape(re.sub('<[^>]+>', ' ', s or ''))).strip()
 def get_setting(key):
     with conn() as c: return c.execute('SELECT value FROM settings WHERE key=?',(key,)).fetchone()['value']
 
@@ -42,10 +44,8 @@ def article_guide(title, details, source, category):
         if sentence not in points:
             points.append(sentence[:420])
         if len(points)==3: break
-    if not points:
-        points=[f'{source} a publié une annonce intitulée « {title} ».']
     if not has_details:
-        points.append('Le flux de veille ne fournit pas le texte détaillé de cette publication.')
+        points=[]
     checks=[
         'Vérifier la disponibilité réelle de la fonction, sa région et les conditions du compte.',
         'Vérifier les règles de confidentialité avant d’utiliser des données de l’entreprise.',
@@ -125,6 +125,116 @@ def fetch_feed(url):
         u=urllib.parse.urlsplit(link); query=urllib.parse.parse_qsl(u.query); link=urllib.parse.urlunsplit((u.scheme,u.netloc,u.path,urllib.parse.urlencode([(k,v) for k,v in query if not k.startswith('utm_')]),''))
         out.append((title,link,published,clean(field('description','summary','content'))[:3000]))
     return sorted(out,key=lambda row:row[2] or '',reverse=True)[:25]
+
+class ArticleHTMLParser(HTMLParser):
+    """Extraire de courts passages lisibles d'une page publique."""
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.meta=[]; self.article=[]; self.paragraphs=[]; self.stack=[]; self.buffer=[]; self.jsonld=[]
+    def handle_starttag(self,tag,attrs):
+        values=dict(attrs); self.stack.append(tag)
+        if tag=='meta':
+            key=(values.get('property') or values.get('name') or '').lower()
+            if key in ('description','og:description','twitter:description') and values.get('content'):
+                self.meta.append(values['content'])
+        if tag in ('p','script'): self.buffer=[]
+    def handle_data(self,data):
+        if 'p' in self.stack and not any(tag in self.stack for tag in ('script','style')): self.buffer.append(data)
+        elif self.stack and self.stack[-1]=='script': self.buffer.append(data)
+    def handle_endtag(self,tag):
+        if tag=='p':
+            text=clean(' '.join(self.buffer))
+            if len(text)>=55:
+                self.paragraphs.append(text)
+                if 'article' in self.stack: self.article.append(text)
+        elif tag=='script' and self.stack and self.stack[-1]=='script':
+            raw=''.join(self.buffer).strip()
+            if raw.startswith(('{','[')) and len(raw)<2_000_000: self.jsonld.append(raw)
+        if tag in self.stack:
+            index=len(self.stack)-1-self.stack[::-1].index(tag)
+            del self.stack[index:]
+        self.buffer=[]
+
+def _allowed_url(url,domain):
+    parsed=urllib.parse.urlsplit(url)
+    host=(parsed.hostname or '').lower(); allowed=(domain or '').lower().split('/')[0]
+    return parsed.scheme in ('http','https') and bool(allowed) and (host==allowed or host.endswith('.'+allowed))
+
+def _request_text(url,timeout=20,limit=2_000_000):
+    request=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 (compatible; SignalVeilleIA/1.1; public article excerpt)','Accept':'text/html,application/xhtml+xml'})
+    with urllib.request.urlopen(request,timeout=timeout) as response:
+        content_type=response.headers.get('Content-Type','')
+        if 'html' not in content_type.lower(): raise ValueError('La publication n’est pas une page HTML')
+        body=response.read(limit+1)
+        if len(body)>limit: raise ValueError('Page trop volumineuse')
+        charset=response.headers.get_content_charset() or 'utf-8'
+        return body.decode(charset,'replace')
+
+def resolve_google_news_url(url,domain):
+    """Résoudre un lien RSS Google Actualités vers le domaine officiel attendu."""
+    if 'news.google.com' not in (urllib.parse.urlsplit(url).hostname or ''):
+        return url if _allowed_url(url,domain) else None
+    html=_request_text(url)
+    def attribute(name):
+        match=re.search(r'data-n-a-'+name+r'="([^"]+)"',html)
+        if not match: raise ValueError('Redirection Google Actualités incomplète')
+        return match.group(1)
+    ident,timestamp,signature=attribute('id'),attribute('ts'),attribute('sg')
+    arguments=['garturlreq',[['X','X',['X','X'],None,None,1,1,'US:en',None,1,None,None,None,None,None,0,1],'X','X',1,[1,1,1],1,1,None,0,0,None,0],ident,int(timestamp),signature]
+    rpc=['Fbv4je',json.dumps(arguments,separators=(',',':')),None,'generic']
+    data=urllib.parse.urlencode({'f.req':json.dumps([[rpc]],separators=(',',':'))}).encode()
+    request=urllib.request.Request('https://news.google.com/_/DotsSplashUi/data/batchexecute',data=data,headers={'User-Agent':'Mozilla/5.0','Content-Type':'application/x-www-form-urlencoded;charset=UTF-8'})
+    with urllib.request.urlopen(request,timeout=20) as response:
+        result=response.read(1_000_000).decode('utf-8','replace')
+    target=None
+    for line in result.splitlines():
+        try:
+            for entry in json.loads(line):
+                if isinstance(entry,list) and len(entry)>2 and entry[0]=='wrb.fr':
+                    decoded=json.loads(entry[2])
+                    if decoded and decoded[0]=='garturlres': target=decoded[1]
+        except (ValueError,TypeError,IndexError): pass
+    return target if target and _allowed_url(target,domain) else None
+
+def extract_public_excerpt(url,domain,max_chars=1400):
+    """Retourner un extrait public court de la page officielle, jamais son texte intégral."""
+    if not _allowed_url(url,domain): return ''
+    parser=ArticleHTMLParser(); parser.feed(_request_text(url)); candidates=[]
+    for raw in parser.jsonld:
+        try:
+            nodes=json.loads(raw); nodes=nodes if isinstance(nodes,list) else [nodes]
+            for node in nodes:
+                if isinstance(node,dict):
+                    candidates.extend([node.get('description',''),node.get('articleBody','')])
+                    graph=node.get('@graph',[])
+                    if isinstance(graph,list):
+                        for child in graph:
+                            if isinstance(child,dict): candidates.extend([child.get('description',''),child.get('articleBody','')])
+        except (ValueError,TypeError): pass
+    candidates=parser.meta+candidates+(parser.article or parser.paragraphs)
+    selected=[]
+    for value in candidates:
+        text=clean(value)
+        if len(text)<70 or text.lower().startswith(('cookie','subscribe','sign up','all rights reserved')): continue
+        if any(text[:90].lower() in previous.lower() or previous[:90].lower() in text.lower() for previous in selected): continue
+        selected.append(text)
+        if len(' '.join(selected))>=max_chars: break
+    excerpt=' '.join(selected)[:max_chars]
+    return excerpt.rsplit(' ',1)[0].strip() if selected else ''
+
+def enrich_record(record,config,via_relay):
+    title,link,date,excerpt=record; domain=config.get('domain','')
+    try:
+        if via_relay: link=resolve_google_news_url(link,domain)
+        if not link: return None
+        excerpt=clean(excerpt)
+        if via_relay or len(excerpt)<120:
+            extracted=extract_public_excerpt(link,domain)
+            if len(extracted)>=120: excerpt=extracted
+        if len(excerpt)<120: return None
+        return title,link,date,excerpt
+    except Exception:
+        return None
 def sync():
     if not LOCK.acquire(False): return {'message':'Synchronisation déjà en cours'}
     try:
@@ -145,20 +255,27 @@ def collect():
                     if via_relay or not config.get('fallback'): raise
                     records=fetch_feed(config['fallback']); via_relay=True
                 records=records[:12]
-                for title,link,date,excerpt in records:
-                    if via_relay:
-                        if title.split(' - ')[0].strip().lower() in ('le chat','midjourney','home','news','blog'): continue
-                        excerpt='Titre repéré sur le domaine officiel via Google Actualités. Consultez la publication originale pour son contenu complet.'
+                candidates=[record for record in records if not via_relay or record[0].split(' - ')[0].strip().lower() not in ('le chat','midjourney','home','news','blog','qwen','try qwen','anthropic')]
+                if via_relay:
+                    with ThreadPoolExecutor(max_workers=6) as pool:
+                        usable=[result for result in pool.map(lambda record:enrich_record(record,config,True),candidates[:10]) if result][:6]
+                else:
+                    usable=[result for result in (enrich_record(record,config,False) for record in candidates) if result]
+                for title,link,date,excerpt in usable:
                     ident=hashlib.sha256(re.sub(r'\W+','',title.lower()).encode()).hexdigest()[:24]
-                    with conn() as c: exists=c.execute('SELECT 1 FROM articles WHERE id=? OR url=?',(ident,link)).fetchone()
-                    if exists: continue
                     analysis=analyze(title,excerpt)
-                    analysis['collection_mode']='Relais Google Actualités' if via_relay else 'Flux officiel'
+                    analysis['collection_mode']='Publication officielle retrouvée via Google Actualités' if via_relay else 'Flux officiel'
                     with conn() as c:
-                        cursor=c.execute('INSERT INTO articles(id,title,url,source,published,excerpt,analysis) VALUES(?,?,?,?,?,?,?) ON CONFLICT DO NOTHING',(ident,title,link,name,date,excerpt,json.dumps(analysis,ensure_ascii=False))); added+=cursor.rowcount
-                status='OK · '+str(len(records))+' entrées lues · '+('relais Google Actualités' if via_relay else 'flux officiel')
+                        existing=c.execute('SELECT id FROM articles WHERE id=? OR url=?',(ident,link)).fetchone()
+                        if existing:
+                            c.execute('UPDATE articles SET title=?,url=?,source=?,published=?,excerpt=?,analysis=? WHERE id=?',(title,link,name,date,excerpt,json.dumps(analysis,ensure_ascii=False),existing['id']))
+                        else:
+                            cursor=c.execute('INSERT INTO articles(id,title,url,source,published,excerpt,analysis) VALUES(?,?,?,?,?,?,?) ON CONFLICT DO NOTHING',(ident,title,link,name,date,excerpt,json.dumps(analysis,ensure_ascii=False))); added+=cursor.rowcount
+                status='OK · '+str(len(usable))+' articles avec extrait · '+('pages officielles via Google Actualités' if via_relay else 'flux officiel')
             except Exception: status='Échec de la collecte · source momentanément inaccessible'
             with conn() as c: c.execute('UPDATE sources SET status=?,checked=? WHERE name=?',(status,datetime.now(timezone.utc).isoformat(),name))
+        with conn() as c:
+            c.execute("DELETE FROM articles WHERE excerpt LIKE 'Titre repéré sur le domaine officiel via Google Actualités.%'")
         translated=translate_articles()
         import ideas
         daily=ideas.generate_daily()
@@ -200,6 +317,7 @@ def state():
             a['excerpt']=a['details']
             a['category']={'Data & BI':'Données et décisionnel','Copilot & productivité':'Copilot et productivité','IA & innovation':'IA et innovation'}.get(a['category'],a['category'])
             a.update(article_guide(a['title'],a['details'],a['source'],a['category']))
+            a['excerpt_label']='Extrait de la publication officielle' if a['details_available'] else 'Extrait indisponible'
         items=[dict(r) for r in c.execute('SELECT * FROM items ORDER BY id DESC')]
         for item in items:
             # Traduire les titres importés sans modifier les notes personnelles.

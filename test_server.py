@@ -11,8 +11,8 @@ class Tests(unittest.TestCase):
     def tearDown(self):
         server.DB.unlink(); server.DB=self.previous; self.environment.stop()
     def test_dedup_and_persistence(self):
-        record=[('Copilot maintenance','https://example.com/article','2026-09-24T10:00:00+00:00','Maintenance Copilot')]
-        with patch.object(server,'fetch_feed',return_value=record),patch.dict(server.os.environ,{'OPENAI_API_KEY':''}),patch.object(server.translation,'translate_public',side_effect=lambda t:'Français : '+t):
+        record=[('Copilot maintenance','https://example.com/article','2026-09-24T10:00:00+00:00','Maintenance Copilot avec une description officielle suffisamment complète pour expliquer concrètement la nouvelle fonction et son usage.')]
+        with patch.object(server,'fetch_feed',return_value=record),patch.object(server,'enrich_record',side_effect=lambda r,c,v:r),patch.dict(server.os.environ,{'OPENAI_API_KEY':''}),patch.object(server.translation,'translate_public',side_effect=lambda t:'Français : '+t):
             server.sync(); server.sync()
         with server.conn() as c:
             self.assertEqual(c.execute('SELECT COUNT(*) FROM articles').fetchone()[0],1)
@@ -50,7 +50,7 @@ class Tests(unittest.TestCase):
     def test_article_guide_is_explicit_when_only_title_is_available(self):
         guide=server.article_guide('New model','Titre repéré sur le domaine officiel via Google Actualités. Consultez la publication originale pour son contenu complet.','Éditeur','IA et innovation')
         self.assertFalse(guide['details_available'])
-        self.assertIn('ne fournit pas',guide['key_points'][-1])
+        self.assertEqual(guide['key_points'],[])
         self.assertEqual(len(guide['checks']),3)
 
     def test_article_guide_extracts_three_factual_points(self):
@@ -65,14 +65,34 @@ class Tests(unittest.TestCase):
         def fetch(url):
             if url==config['feed']: raise OSError('Temporary failure')
             self.assertEqual(url,config['fallback']); return record
-        with patch.object(server,'SOURCES',[(name,config['feed'])]),patch.object(server,'fetch_feed',side_effect=fetch),patch.object(server.translation,'translate_public',side_effect=lambda t:t):
+        with patch.object(server,'SOURCES',[(name,config['feed'])]),patch.object(server,'fetch_feed',side_effect=fetch),patch.object(server,'enrich_record',side_effect=lambda r,c,v:r),patch.object(server.translation,'translate_public',side_effect=lambda t:t):
             server.sync()
         state=server.state()
-        self.assertEqual(state['articles'][0]['collection_mode'],'Relais Google Actualités')
-        self.assertIn('relais Google',next(s['status'] for s in state['sources'] if s['name']==name))
+        self.assertEqual(state['articles'][0]['collection_mode'],'Publication officielle retrouvée via Google Actualités')
+        self.assertIn('Google Actualités',next(s['status'] for s in state['sources'] if s['name']==name))
         self.assertEqual(len(state['sources']),26)
         server.init()
         self.assertEqual(len(server.state()['sources']),26)
+    def test_google_news_resolution_rejects_an_unofficial_domain(self):
+        html='<div data-n-a-id="abc" data-n-a-ts="123" data-n-a-sg="sig"></div>'
+        response=")]}'\n[[\"wrb.fr\",\"Fbv4je\",\"[\\\"garturlres\\\",\\\"https://evil.example/article\\\",1]\",null]]"
+        from io import BytesIO
+        from email.message import Message
+        def page(content,content_type):
+            stream=BytesIO(content.encode()); headers=Message(); headers['Content-Type']=content_type; stream.headers=headers; return stream
+        with patch('urllib.request.urlopen',side_effect=[page(html,'text/html'),page(response,'application/json')]):
+            self.assertIsNone(server.resolve_google_news_url('https://news.google.com/rss/articles/abc','anthropic.com'))
+
+    def test_extracts_a_real_excerpt_from_the_official_page(self):
+        html='''<html><head><meta property="og:description" content="A detailed official description explaining the product announcement and what has changed for customers today."></head><body><article><p>The release introduces a concrete capability for teams working with industrial information and documented workflows.</p><p>Customers can test the feature before enabling it more broadly in their organisation.</p></article></body></html>'''
+        from io import BytesIO
+        from email.message import Message
+        page=BytesIO(html.encode()); headers=Message(); headers['Content-Type']='text/html; charset=utf-8'; page.headers=headers
+        with patch('urllib.request.urlopen',return_value=page):
+            excerpt=server.extract_public_excerpt('https://news.example.com/article','example.com')
+        self.assertIn('detailed official description',excerpt)
+        self.assertIn('concrete capability',excerpt)
+        self.assertLessEqual(len(excerpt),1400)
     def test_feed_parsing(self):
         from io import BytesIO
         xml=b'<rss><channel><item><title>Official update</title><link>https://example.com/a?utm_source=rss</link><pubDate>Thu, 24 Sep 2026 10:00:00 GMT</pubDate><description>&lt;p&gt;Real excerpt&lt;/p&gt;</description></item><item><title>Bad link</title><link>javascript:alert(1)</link></item></channel></rss>'
@@ -83,22 +103,24 @@ class Tests(unittest.TestCase):
         self.assertEqual(server.state()['articles'],[]); self.assertTrue(all('Échec' in s['status'] for s in server.state()['sources']))
 
     def test_translation_persisted_without_replacing_original(self):
-        record=[('Official update','https://example.com/news',None,'New features')]
-        translations={'Official update':'Annonce officielle','New features':'Nouvelles fonctionnalités'}
-        with patch.object(server,'fetch_feed',return_value=record),patch.dict(server.os.environ,{'OPENAI_API_KEY':''}),patch.object(server.translation,'translate_public',side_effect=translations.__getitem__) as translate:
+        details='New features are presented in this official excerpt with enough information to explain their purpose and expected use by customers.'
+        record=[('Official update','https://example.com/news',None,details)]
+        translations={'Official update':'Annonce officielle',details:'Nouvelles fonctionnalités avec des informations détaillées.'}
+        with patch.object(server,'fetch_feed',return_value=record),patch.object(server,'enrich_record',side_effect=lambda r,c,v:r),patch.dict(server.os.environ,{'OPENAI_API_KEY':''}),patch.object(server.translation,'translate_public',side_effect=translations.__getitem__) as translate:
             server.sync(); server.sync()
             self.assertEqual(translate.call_count,2)
         article=server.state()['articles'][0]
         self.assertEqual(article['title'],'Annonce officielle')
-        self.assertEqual(article['summary'],'Nouvelles fonctionnalités')
+        self.assertEqual(article['summary'],'Nouvelles fonctionnalités avec des informations détaillées.')
         self.assertEqual(article['original_title'],'Official update')
         self.assertFalse(article['translation_pending'])
         with server.conn() as c:
             self.assertEqual(c.execute('SELECT title FROM articles').fetchone()['title'],'Official update')
 
     def test_unavailable_translation_retries_and_keeps_french_interface(self):
-        record=[('Official update','https://example.com/news',None,'New features')]
-        with patch.object(server,'fetch_feed',return_value=record),patch.dict(server.os.environ,{'OPENAI_API_KEY':''}),patch.object(server.translation,'translate_public',side_effect=OSError('offline')):
+        details='New features are presented in this official excerpt with enough information to explain their purpose and expected use by customers.'
+        record=[('Official update','https://example.com/news',None,details)]
+        with patch.object(server,'fetch_feed',return_value=record),patch.object(server,'enrich_record',side_effect=lambda r,c,v:r),patch.dict(server.os.environ,{'OPENAI_API_KEY':''}),patch.object(server.translation,'translate_public',side_effect=OSError('offline')):
             server.sync()
         a=server.state()['articles'][0]
         self.assertTrue(a['translation_pending'])
