@@ -2,17 +2,15 @@
 
 Application personnelle en français pour collecter les actualités officielles, repérer des opportunités et suivre un parcours **Idée → Test → Projet → Déployé**.
 
-## Architecture en ligne
+## Fonctionnement actuel
 
-- **GitHub** : dépôt public autorisé par le propriétaire, tests et collecte quotidienne planifiée. Les données et secrets sont exclus du dépôt.
-- **Render** : serveur Flask/Gunicorn protégé par identifiant et mot de passe ; configuration `render.yaml`.
-- **Neon PostgreSQL** : articles, traductions, favoris, notes, projets et progression.
-
-Application déployée : https://signal-veille-ia.onrender.com. Dépôt : https://github.com/louisparis10-prog/Veille-IA. Les données sont conservées dans le projet Neon « Veille IA », en région Ohio. Voir [DEPLOIEMENT.md](DEPLOIEMENT.md).
+L'application fonctionne uniquement sur le PC de l'utilisateur. Le service Render a été supprimé le 28 septembre 2026 et la collecte GitHub Actions vers Neon a été arrêtée. GitHub reste une sauvegarde du code. L'ancienne base Neon est conservée comme sauvegarde et n'est pas utilisée par le lancement local.
 
 ## Utilisation locale
 
-Python 3.11+ suffit pour la version SQLite : double-cliquer sur `Lancer.cmd` ou lancer `python server.py`, puis ouvrir http://127.0.0.1:8765. Les données restent dans `veille.sqlite3`. Ce fichier est exclu de Git. Pour tester Flask et PostgreSQL, installer `requirements.txt`.
+Python 3.11+ suffit : double-cliquer sur `Lancer.cmd`. Le lanceur vérifie Python, démarre le serveur, puis ouvre http://127.0.0.1:8765. Les données restent dans `veille.sqlite3`. Ce fichier est exclu de Git. La fenêtre noire doit rester ouverte pendant l'utilisation.
+
+Configuration minimale conseillée : Windows 10 ou 11, 2 Go de mémoire disponible, 200 Mo d'espace disque et un navigateur récent. Aucun GPU, serveur externe ou abonnement payant n'est nécessaire. Internet sert uniquement à récupérer et traduire les nouvelles actualités.
 
 ## Fonctions
 
@@ -35,7 +33,7 @@ La traduction utilise un point d’accès Google sans clé et sans garantie de d
 
 L’IA configurée analyse les extraits des nouveaux articles. Pour une question, elle reçoit les extraits sélectionnés et les notes/projets. Modèle configurable par `OPENAI_MODEL` (défaut : `gpt-4.1-mini`). Des frais API peuvent s’appliquer. Sans clé, les scores reposent explicitement sur des mots-clés. L’assistant ne consulte pas les pages complètes et ne fait pas de recherche web générale.
 
-La collecte GitHub Actions est programmée à 05 h 17 UTC et reste indépendante du PC et de la mise en veille Render. Elle nécessite le secret `DATABASE_URL` dans GitHub. GitHub peut retarder cet horaire. En local, garder le serveur lancé ; rattrapage au démarrage.
+En local, la collecte se lance au démarrage si elle est nécessaire. Le PC doit être allumé et connecté à Internet. L'application et les données déjà enregistrées restent consultables sans connexion.
 
 La coordination des collectes utilise dans Neon un bail d'une heure. La connexion est libérée pendant les téléchargements et traductions, ce qui évite qu'un long traitement soit interrompu par le pooler PostgreSQL.
 
@@ -49,4 +47,4 @@ node --check public/app.js
 
 Les tests PostgreSQL utilisent une base locale jetable via `TEST_POSTGRES_URL` et sont ignorés sans elle. Le flux de vérification GitHub crée automatiquement un PostgreSQL 18. Ne jamais utiliser une base de production pour les tests.
 
-Évolutions non incluses : catalogue d’outils, formations, bibliothèque de prompts, alertes externes, compétences et authentification multi-utilisateur. La version hébergée reste un espace personnel.
+Évolutions non incluses : catalogue d’outils, formations, bibliothèque de prompts, alertes externes, compétences et authentification multi-utilisateur.

@@ -1,7 +1,6 @@
 """Sélection quotidienne sans API payante, à partir de fiches pédagogiques."""
 import json
 from datetime import datetime
-from zoneinfo import ZoneInfo
 import server
 
 CONTEXTS=[
@@ -40,7 +39,9 @@ def read_daily():
 
 def generate_daily():
     previous=read_daily()
-    today=datetime.now(ZoneInfo('Europe/Paris')).date().isoformat()
+    # Le mode local suit le fuseau horaire configuré sur le PC et ne dépend
+    # d'aucun paquet de données de fuseaux horaires supplémentaire.
+    today=datetime.now().astimezone().date().isoformat()
     if previous.get('date')==today: return {'status':'already_generated','date':today}
     seen=set(previous.get('seen',[])); selected=[]; all_ideas=pool()
     # Parcourir les thèmes avant de revenir à une autre variante du même thème.
