@@ -1,4 +1,5 @@
 import os, json, sqlite3, threading, time, hashlib, re, urllib.request, urllib.parse, xml.etree.ElementTree as ET
+from collections import Counter
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from html.parser import HTMLParser
 from concurrent.futures import ThreadPoolExecutor
@@ -196,22 +197,29 @@ def resolve_google_news_url(url,domain):
         except (ValueError,TypeError,IndexError): pass
     return target if target and _allowed_url(target,domain) else None
 
-def extract_public_excerpt(url,domain,max_chars=1400):
+def _title_matches_excerpt(title,excerpt):
+    ignored={'about','after','announcing','anthropic','claude','google','microsoft','qwen','release','team','using','with'}
+    title_words={word for word in re.findall(r'[a-z0-9]+',title.lower()) if len(word)>=5 and word not in ignored}
+    excerpt_words=set(re.findall(r'[a-z0-9]+',excerpt.lower()))
+    return len(title_words & excerpt_words)>=min(2,len(title_words)) if title_words else False
+
+def extract_public_excerpt(url,domain,max_chars=1400,title=''):
     """Retourner un extrait public court de la page officielle, jamais son texte intégral."""
     if not _allowed_url(url,domain): return ''
-    parser=ArticleHTMLParser(); parser.feed(_request_text(url)); candidates=[]
+    parser=ArticleHTMLParser(); parser.feed(_request_text(url)); descriptions=[]; bodies=[]
     for raw in parser.jsonld:
         try:
             nodes=json.loads(raw); nodes=nodes if isinstance(nodes,list) else [nodes]
             for node in nodes:
                 if isinstance(node,dict):
-                    candidates.extend([node.get('description',''),node.get('articleBody','')])
+                    descriptions.append(node.get('description','')); bodies.append(node.get('articleBody',''))
                     graph=node.get('@graph',[])
                     if isinstance(graph,list):
                         for child in graph:
-                            if isinstance(child,dict): candidates.extend([child.get('description',''),child.get('articleBody','')])
+                            if isinstance(child,dict): descriptions.append(child.get('description','')); bodies.append(child.get('articleBody',''))
         except (ValueError,TypeError): pass
-    candidates=parser.meta+candidates+(parser.article or parser.paragraphs)
+    bodies=[text for text in bodies+(parser.article or parser.paragraphs) if clean(text)]
+    candidates=bodies+descriptions+parser.meta
     selected=[]
     for value in candidates:
         text=clean(value)
@@ -220,7 +228,10 @@ def extract_public_excerpt(url,domain,max_chars=1400):
         selected.append(text)
         if len(' '.join(selected))>=max_chars: break
     excerpt=' '.join(selected)[:max_chars]
-    return excerpt.rsplit(' ',1)[0].strip() if selected else ''
+    excerpt=excerpt.rsplit(' ',1)[0].strip() if selected else ''
+    # Une description générale de site ne constitue pas un extrait d'article.
+    if excerpt and not bodies and title and not _title_matches_excerpt(title,excerpt): return ''
+    return excerpt
 
 def enrich_record(record,config,via_relay):
     title,link,date,excerpt=record; domain=config.get('domain','')
@@ -229,7 +240,7 @@ def enrich_record(record,config,via_relay):
         if not link: return None
         excerpt=clean(excerpt)
         if via_relay or len(excerpt)<120:
-            extracted=extract_public_excerpt(link,domain)
+            extracted=extract_public_excerpt(link,domain,title=title)
             if len(extracted)>=120: excerpt=extracted
         if len(excerpt)<120: return None
         return title,link,date,excerpt
@@ -258,7 +269,10 @@ def collect():
                 candidates=[record for record in records if not via_relay or record[0].split(' - ')[0].strip().lower() not in ('le chat','midjourney','home','news','blog','qwen','try qwen','anthropic')]
                 if via_relay:
                     with ThreadPoolExecutor(max_workers=6) as pool:
-                        usable=[result for result in pool.map(lambda record:enrich_record(record,config,True),candidates[:10]) if result][:6]
+                        resolved=[result for result in pool.map(lambda record:enrich_record(record,config,True),candidates[:10]) if result]
+                    fingerprints=[re.sub(r'\W+','',result[3].lower())[:600] for result in resolved]
+                    counts=Counter(fingerprints)
+                    usable=[result for result,fingerprint in zip(resolved,fingerprints) if counts[fingerprint]==1][:6]
                 else:
                     usable=[result for result in (enrich_record(record,config,False) for record in candidates) if result]
                 for title,link,date,excerpt in usable:
@@ -276,6 +290,15 @@ def collect():
             with conn() as c: c.execute('UPDATE sources SET status=?,checked=? WHERE name=?',(status,datetime.now(timezone.utc).isoformat(),name))
         with conn() as c:
             c.execute('DELETE FROM articles WHERE excerpt LIKE ?',('Titre repéré sur le domaine officiel via Google Actualités.%',))
+            rows=c.execute('SELECT id,source,excerpt,analysis FROM articles').fetchall()
+            groups={}
+            for row in rows:
+                if 'Google Actualités' not in json.loads(row['analysis']).get('collection_mode',''): continue
+                fingerprint=re.sub(r'\W+','',row['excerpt'].lower())[:600]
+                groups.setdefault((row['source'],fingerprint),[]).append(row['id'])
+            for ids in groups.values():
+                if len(ids)>1:
+                    for article_id in ids: c.execute('DELETE FROM articles WHERE id=?',(article_id,))
         translated=translate_articles()
         import ideas
         daily=ideas.generate_daily()

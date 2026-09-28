@@ -93,6 +93,14 @@ class Tests(unittest.TestCase):
         self.assertIn('detailed official description',excerpt)
         self.assertIn('concrete capability',excerpt)
         self.assertLessEqual(len(excerpt),1400)
+    def test_rejects_a_generic_site_description(self):
+        html='<html><head><meta property="og:description" content="Qwen offers comprehensive chatbot, image generation, document processing, search integration and tool utilization for everyone."></head></html>'
+        from io import BytesIO
+        from email.message import Message
+        page=BytesIO(html.encode()); headers=Message(); headers['Content-Type']='text/html; charset=utf-8'; page.headers=headers
+        with patch('urllib.request.urlopen',return_value=page):
+            excerpt=server.extract_public_excerpt('https://qwen.example/blog?id=live','example',title='LiveTranslate identifies speakers and preserves meaning')
+        self.assertEqual(excerpt,'')
     def test_feed_parsing(self):
         from io import BytesIO
         xml=b'<rss><channel><item><title>Official update</title><link>https://example.com/a?utm_source=rss</link><pubDate>Thu, 24 Sep 2026 10:00:00 GMT</pubDate><description>&lt;p&gt;Real excerpt&lt;/p&gt;</description></item><item><title>Bad link</title><link>javascript:alert(1)</link></item></channel></rss>'
