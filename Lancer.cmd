@@ -19,6 +19,11 @@ if errorlevel 1 (
 
 echo Demarrage de Signal en local...
 echo L'application sera disponible sur http://127.0.0.1:8765
+set "OLLAMA_EXE=%LOCALAPPDATA%\Programs\Ollama\ollama.exe"
+if exist "%OLLAMA_EXE%" (
+  "%OLLAMA_EXE%" list >nul 2>nul
+  if errorlevel 1 start "" /b "%OLLAMA_EXE%" serve >nul 2>nul
+)
 start "" /b powershell.exe -NoProfile -WindowStyle Hidden -Command "Start-Sleep -Milliseconds 1200; Start-Process 'http://127.0.0.1:8765'"
 python server.py
 echo.

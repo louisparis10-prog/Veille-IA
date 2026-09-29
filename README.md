@@ -10,13 +10,13 @@ L'application fonctionne uniquement sur le PC de l'utilisateur. Le service Rende
 
 Python 3.11+ suffit : double-cliquer sur `Lancer.cmd`. Le lanceur vérifie Python, démarre le serveur, puis ouvre http://127.0.0.1:8765. Les données restent dans `veille.sqlite3`. Ce fichier est exclu de Git. La fenêtre noire doit rester ouverte pendant l'utilisation.
 
-Configuration minimale conseillée : Windows 10 ou 11, 2 Go de mémoire disponible, 200 Mo d'espace disque et un navigateur récent. Aucun GPU, serveur externe ou abonnement payant n'est nécessaire. Internet sert uniquement à récupérer et traduire les nouvelles actualités.
+Configuration minimale conseillée : Windows 10 ou 11, 16 Go de RAM, environ 5 Go d'espace disque avec le modèle IA local et un navigateur récent. Aucun GPU, serveur externe ou abonnement payant n'est nécessaire. Internet sert à installer le modèle puis à récupérer et traduire les nouvelles actualités.
 
 ## Fonctions
 
-- Mode sans frais API : aucun appel OpenAI tant que `ALLOW_PAID_AI` n’est pas explicitement activé. Une clé seule ne déclenche aucune dépense.
+- Assistant IA entièrement local avec Ollama et `qwen3:4b`, adapté à 16 Go de RAM : explication des articles, questions sur les pistes et recherche dans les extraits enregistrés.
 - Trois pistes quotidiennes préparées : deux applications et une création, issues de 60 fiches pédagogiques. Rotation sans répétition pendant 20 jours puis reprise ; historique conservé sur 30 jours.
-- « Comprendre / poser une question » prépare un message modifiable à copier dans le compte ChatGPT de l’utilisateur. Ce n’est pas une conversation API intégrée ; aucun texte n’est envoyé automatiquement.
+- « Comprendre / poser une question » permet d’interroger directement l’IA locale. La copie manuelle de la question reste disponible comme solution de secours.
 - 26 sources couvrant les principaux acteurs IA : OpenAI, Microsoft, Google/DeepMind, Anthropic, Meta, AWS, NVIDIA, Mistral, DeepSeek, Alibaba/Qwen, Hugging Face, IBM, Cohere, xAI, Perplexity, Adobe, Stability AI, Runway, ElevenLabs, Midjourney, Apple et Salesforce. Flux officiels et relais Google Actualités limités aux domaines officiels ; couverture non exhaustive, sans API payante.
 - Lecture de 12 entrées récentes par source et conservation des publications qui fournissent un extrait fiable, avec historique et dédoublonnage par URL ou titre.
 - Titres et extraits traduits en français et conservés en base ; originaux préservés.
@@ -24,14 +24,16 @@ Configuration minimale conseillée : Windows 10 ou 11, 2 Go de mémoire disponib
 - Synthèse déterministe des trois articles les mieux classés, dates et liens vers les sources.
 - Catégories, pertinence par mots-clés et pistes d’usage présentées comme des hypothèses.
 - Recherche et filtre par acteur/source, favoris, lecture, idées, tests, projets, notes et progression.
-- Analyse et assistant IA facultatifs via `OPENAI_API_KEY` et `ALLOW_PAID_AI=true`, désactivés par défaut conformément au souhait de ne rien payer.
+- Aucune API payante n’est activée. Les questions, notes et extraits traités par l’assistant local restent sur le PC.
 - Interface adaptée aux mobiles, thèmes clair et sombre.
 
 ## Services externes et limites
 
 La traduction utilise un point d’accès Google sans clé et sans garantie de disponibilité. Seuls les titres et extraits publics sont transmis ; jamais les notes personnelles. Les traductions manquantes sont signalées en français et réessayées lors de la prochaine collecte.
 
-L’IA configurée analyse les extraits des nouveaux articles. Pour une question, elle reçoit les extraits sélectionnés et les notes/projets. Modèle configurable par `OPENAI_MODEL` (défaut : `gpt-4.1-mini`). Des frais API peuvent s’appliquer. Sans clé, les scores reposent explicitement sur des mots-clés. L’assistant ne consulte pas les pages complètes et ne fait pas de recherche web générale.
+L’assistant utilise par défaut `qwen3:4b` via Ollama. Pour une question, il reçoit les extraits locaux les plus pertinents et les notes/projets enregistrés. Il ne consulte pas les pages complètes et ne fait pas de recherche web générale. Les scores des articles restent calculés par mots-clés afin de ne pas faire travailler le modèle pendant toute la collecte.
+
+Lorsque le PC disposera de 32 Go de RAM, un modèle local 8B ou 9B pourra remplacer le modèle 4B. Le modèle 4B reste le meilleur réglage pour 16 Go.
 
 En local, la collecte se lance au démarrage si elle est nécessaire. Le PC doit être allumé et connecté à Internet. L'application et les données déjà enregistrées restent consultables sans connexion.
 

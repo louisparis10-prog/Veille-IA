@@ -41,8 +41,20 @@ class Tests(unittest.TestCase):
             with self.assertRaises(server.AIUnavailable): server.ai('Bonjour')
             status,payload=server.perform_action('/api/ask',{'question':'Bonjour'})
             self.assertEqual(status,503)
-            self.assertIn('sans frais',payload['error'])
+            self.assertIn('locale',payload['error'])
             network.assert_not_called()
+
+    def test_local_ai_uses_ollama_without_api_key(self):
+        from io import BytesIO
+        response=BytesIO(json.dumps({'message':{'content':'Explication locale en français.'}}).encode())
+        with patch('urllib.request.urlopen',return_value=response) as network:
+            answer=server.local_ai('Explique cette piste.')
+        self.assertEqual(answer,'Explication locale en français.')
+        request=network.call_args.args[0]
+        self.assertEqual(request.full_url,'http://127.0.0.1:11434/api/chat')
+        payload=json.loads(request.data)
+        self.assertEqual(payload['model'],'qwen3:4b')
+        self.assertNotIn('Authorization',dict(request.header_items()))
 
     def test_score_is_explained_and_bounded(self):
         a=server.classify('Copilot Power BI production maintenance qualité automatisation','')
