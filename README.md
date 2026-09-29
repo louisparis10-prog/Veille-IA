@@ -10,11 +10,11 @@ L'application fonctionne uniquement sur le PC de l'utilisateur. Le service Rende
 
 Python 3.11+ suffit : double-cliquer sur `Lancer.cmd`. Le lanceur vérifie Python, démarre le serveur, puis ouvre http://127.0.0.1:8765. Les données restent dans `veille.sqlite3`. Ce fichier est exclu de Git. La fenêtre noire doit rester ouverte pendant l'utilisation.
 
-Configuration minimale conseillée : Windows 10 ou 11, 16 Go de RAM, environ 5 Go d'espace disque avec le modèle IA local et un navigateur récent. Aucun GPU, serveur externe ou abonnement payant n'est nécessaire. Internet sert à installer le modèle puis à récupérer et traduire les nouvelles actualités.
+Configuration minimale conseillée : Windows 10 ou 11, 16 Go de RAM, environ 5 Go d'espace disque avec le modèle IA local et un navigateur récent. Aucun GPU dédié, serveur externe ou abonnement payant n'est nécessaire. Internet sert à installer le modèle puis à récupérer et traduire les nouvelles actualités.
 
 ## Fonctions
 
-- Assistant IA entièrement local avec Ollama et `qwen3:4b`, adapté à 16 Go de RAM : explication des articles, questions sur les pistes et recherche dans les extraits enregistrés.
+- Assistant IA entièrement local avec Microsoft Foundry Local et Phi-4 Mini, adapté à 16 Go de RAM : explication des articles, questions sur les pistes et recherche dans les extraits enregistrés.
 - Trois pistes quotidiennes préparées : deux applications et une création, issues de 60 fiches pédagogiques. Rotation sans répétition pendant 20 jours puis reprise ; historique conservé sur 30 jours.
 - « Comprendre / poser une question » permet d’interroger directement l’IA locale. La copie manuelle de la question reste disponible comme solution de secours.
 - 26 sources couvrant les principaux acteurs IA : OpenAI, Microsoft, Google/DeepMind, Anthropic, Meta, AWS, NVIDIA, Mistral, DeepSeek, Alibaba/Qwen, Hugging Face, IBM, Cohere, xAI, Perplexity, Adobe, Stability AI, Runway, ElevenLabs, Midjourney, Apple et Salesforce. Flux officiels et relais Google Actualités limités aux domaines officiels ; couverture non exhaustive, sans API payante.
@@ -31,9 +31,9 @@ Configuration minimale conseillée : Windows 10 ou 11, 16 Go de RAM, environ 5 G
 
 La traduction utilise un point d’accès Google sans clé et sans garantie de disponibilité. Seuls les titres et extraits publics sont transmis ; jamais les notes personnelles. Les traductions manquantes sont signalées en français et réessayées lors de la prochaine collecte.
 
-L’assistant utilise par défaut `qwen3:4b` via Ollama. Pour une question, il reçoit les extraits locaux les plus pertinents et les notes/projets enregistrés. Il ne consulte pas les pages complètes et ne fait pas de recherche web générale. Les scores des articles restent calculés par mots-clés afin de ne pas faire travailler le modèle pendant toute la collecte.
+L’assistant utilise par défaut `phi-4-mini-instruct-openvino-gpu` via Microsoft Foundry Local. Pour une question, il reçoit les extraits locaux les plus pertinents et les notes/projets enregistrés. Il ne consulte pas les pages complètes et ne fait pas de recherche web générale. Les scores des articles restent calculés par mots-clés afin de ne pas faire travailler le modèle pendant toute la collecte.
 
-Lorsque le PC disposera de 32 Go de RAM, un modèle local 8B ou 9B pourra remplacer le modèle 4B. Le modèle 4B reste le meilleur réglage pour 16 Go.
+Lorsque le PC disposera de 32 Go de RAM, un modèle local 7B ou plus pourra remplacer Phi-4 Mini. Phi-4 Mini reste le réglage adapté à 16 Go sur ce PC.
 
 En local, la collecte se lance au démarrage si elle est nécessaire. Le PC doit être allumé et connecté à Internet. L'application et les données déjà enregistrées restent consultables sans connexion.
 

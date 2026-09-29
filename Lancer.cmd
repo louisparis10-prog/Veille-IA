@@ -19,10 +19,9 @@ if errorlevel 1 (
 
 echo Demarrage de Signal en local...
 echo L'application sera disponible sur http://127.0.0.1:8765
-set "OLLAMA_EXE=%LOCALAPPDATA%\Programs\Ollama\ollama.exe"
-if exist "%OLLAMA_EXE%" (
-  "%OLLAMA_EXE%" list >nul 2>nul
-  if errorlevel 1 start "" /b "%OLLAMA_EXE%" serve >nul 2>nul
+where foundry >nul 2>nul
+if not errorlevel 1 (
+  start "" /b powershell.exe -NoProfile -WindowStyle Hidden -Command "foundry server start | Out-Null; $loaded=foundry model list --loaded --output json | ConvertFrom-Json; if (-not ($loaded.models.alias -contains 'phi-4-mini')) { foundry model load phi-4-mini | Out-Null }"
 )
 start "" /b powershell.exe -NoProfile -WindowStyle Hidden -Command "Start-Sleep -Milliseconds 1200; Start-Process 'http://127.0.0.1:8765'"
 python server.py
