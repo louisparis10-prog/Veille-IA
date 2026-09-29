@@ -111,10 +111,10 @@ def local_ai(prompt, json_mode=False):
             {'role':'user','content':prompt}
         ],
         'temperature':0.2,
-        'max_tokens':1600
+        'max_tokens':700
     }
     if json_mode:
-        payload['max_tokens']=2400
+        payload['max_tokens']=900
         payload['messages'][1]['content']='Retourne uniquement du JSON valide.\n'+payload['messages'][1]['content']
     request=urllib.request.Request(LOCAL_AI_URL+'/chat/completions',json.dumps(payload,ensure_ascii=False).encode(),{'Content-Type':'application/json','User-Agent':'Signal-local/1.0'})
     try:
@@ -437,10 +437,10 @@ def perform_action(path,b):
     elif path=='/api/ask':
         s=state(); q=str(b.get('question',''))[:2000]; words=re.findall(r'\w{3,}',q.lower())
         if not q.strip(): return 400, {'error':'Écrivez une question.'}
-        ranked=sorted(s['articles'],key=lambda a:sum(w in (a['title']+' '+a['excerpt']).lower() for w in words),reverse=True)[:12]
-        context=[dict(id=i+1,title=a['title'],excerpt=a['excerpt'][:1000],date=a['published']) for i,a in enumerate(ranked)]
+        ranked=sorted(s['articles'],key=lambda a:sum(w in (a['title']+' '+a['excerpt']).lower() for w in words),reverse=True)[:8]
+        context=[dict(id=i+1,title=a['title'],excerpt=a['excerpt'][:700],date=a['published']) for i,a in enumerate(ranked)]
         try:
-            answer=ai('Question : '+q+'\nSources locales : '+json.dumps(context,ensure_ascii=False)+'\nNotes et projets locaux : '+json.dumps(s['items'],ensure_ascii=False)[:8000])
+            answer=ai('Question : '+q+'\nSources locales : '+json.dumps(context,ensure_ascii=False)+'\nNotes et projets locaux : '+json.dumps(s['items'],ensure_ascii=False)[:3000])
         except AIUnavailable as error:
             return 503, {'error':str(error)}
         return 200, {'answer':answer,'sources':[{'title':a['title'],'url':a['url']} for a in ranked]}
