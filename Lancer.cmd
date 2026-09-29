@@ -10,7 +10,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-python -c "import sys; raise SystemExit(0 if sys.version_info ^>= (3, 11) else 1)"
+python -c "import sys; raise SystemExit(0 if sys.version_info[:2] in [(3, n) for n in range(11, 100)] else 1)"
 if errorlevel 1 (
   echo Votre version de Python est trop ancienne. Installez Python 3.11 ou plus recent.
   pause
