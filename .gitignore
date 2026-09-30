@@ -4,6 +4,7 @@ __pycache__/
 .env.*
 !.env.example
 *.log
+kernel.errors.txt
 .venv/
 .deps/
 .pytest_cache/

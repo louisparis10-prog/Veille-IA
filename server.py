@@ -21,6 +21,38 @@ LOCAL_AI_MODEL = os.environ.get('LOCAL_AI_MODEL', 'phi-4-mini-instruct-openvino-
 LOCAL_AI_DISABLED = os.environ.get('LOCAL_AI_DISABLED', '').lower() == 'true'
 LOCAL_AI_STATUS = {'checked': 0.0, 'available': False, 'installed': False, 'models': []}
 LOCAL_AI_STATUS_LOCK = threading.Lock()
+APP_PRESENCE_LOCK = threading.Lock()
+APP_PRESENCE = {'connected': False, 'last_seen': 0.0, 'close_requested': 0.0}
+
+def note_app_presence(closing=False):
+    """Suivre la fenêtre dédiée sans conserver d'information personnelle."""
+    now=time.monotonic()
+    with APP_PRESENCE_LOCK:
+        if closing:
+            APP_PRESENCE['close_requested']=now
+        else:
+            APP_PRESENCE.update(connected=True,last_seen=now,close_requested=0.0)
+
+def app_watchdog(httpd):
+    """Arrêter le serveur quand la fenêtre a été fermée ou a disparu."""
+    while True:
+        time.sleep(2)
+        now=time.monotonic()
+        with APP_PRESENCE_LOCK:
+            presence=dict(APP_PRESENCE)
+        # Un rechargement envoie aussi pagehide. Une nouvelle page a huit
+        # secondes pour annuler la fermeture avec son premier heartbeat.
+        fermeture_confirmee=(presence['close_requested'] and
+                              presence['last_seen'] <= presence['close_requested'] and
+                              now-presence['close_requested'] > 8)
+        # Filet de sécurité si Edge est tué brutalement et ne peut pas envoyer
+        # le signal de fermeture.
+        fenetre_disparue=(presence['connected'] and
+                           now-presence['last_seen'] > 90)
+        if fermeture_confirmee or fenetre_disparue:
+            print('Fenêtre Signal fermée : arrêt du serveur local.',flush=True)
+            httpd.shutdown()
+            return
 def local_ai_enabled():
     return not LOCAL_AI_DISABLED and os.environ.get('APP_ENV')!='test'
 @contextmanager
@@ -464,8 +496,20 @@ class Handler(BaseHTTPRequestHandler):
             length=int(self.headers.get('Content-Length',0))
             if length>30000: return self.send(413,{'error':'Contenu trop volumineux'})
             b=json.loads(self.rfile.read(length) or '{}')
+            if self.path=='/api/session/heartbeat':
+                note_app_presence(); return self.send(200,{'ok':True})
+            if self.path=='/api/session/close':
+                note_app_presence(closing=True); return self.send(202,{'ok':True})
             status, payload=perform_action(self.path,b)
             self.send(status,payload)
         except Exception as e: self.send(400,{'error':str(e)[:250]})
 if __name__=='__main__':
-    init(); threading.Thread(target=scheduler,daemon=True).start(); print(f'Veille IA : http://127.0.0.1:{PORT}',flush=True); ThreadingHTTPServer(('127.0.0.1',PORT),Handler).serve_forever()
+    init()
+    threading.Thread(target=scheduler,daemon=True).start()
+    httpd=ThreadingHTTPServer(('127.0.0.1',PORT),Handler)
+    threading.Thread(target=app_watchdog,args=(httpd,),daemon=True).start()
+    print(f'Veille IA : http://127.0.0.1:{PORT}',flush=True)
+    try:
+        httpd.serve_forever()
+    finally:
+        httpd.server_close()

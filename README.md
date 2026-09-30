@@ -8,7 +8,7 @@ L'application fonctionne uniquement sur le PC de l'utilisateur. Le service Rende
 
 ## Utilisation locale
 
-Python 3.11+ suffit : double-cliquer sur `Lancer.cmd`. Le lanceur vérifie Python, démarre le serveur, puis ouvre http://127.0.0.1:8765. Les données restent dans `veille.sqlite3`. Ce fichier est exclu de Git. La fenêtre noire doit rester ouverte pendant l'utilisation.
+Python 3.11+ suffit : double-cliquer sur le raccourci **Signal — Veille IA** du Bureau, ou sur `Lancer.cmd`. Le lanceur démarre le serveur et ouvre l’application dans une fenêtre Edge dédiée. Il n’affiche plus de fenêtre noire. Quand cette fenêtre est fermée, le serveur local, le modèle IA et Foundry Local sont arrêtés afin de libérer la mémoire. Les données restent dans `veille.sqlite3`. Ce fichier est exclu de Git.
 
 Configuration minimale conseillée : Windows 10 ou 11, 16 Go de RAM, environ 5 Go d'espace disque avec le modèle IA local et un navigateur récent. Aucun GPU dédié, serveur externe ou abonnement payant n'est nécessaire. Internet sert à installer le modèle puis à récupérer et traduire les nouvelles actualités.
 
