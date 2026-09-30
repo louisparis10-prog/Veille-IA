@@ -1,4 +1,4 @@
-import tempfile, pathlib, unittest, json, uuid
+import unittest, uuid
 from unittest.mock import patch
 import server
 
@@ -40,55 +40,16 @@ class Tests(unittest.TestCase):
         with patch.dict(server.os.environ,{'OPENAI_API_KEY':'not-a-real-key','ALLOW_PAID_AI':''}),patch('urllib.request.urlopen') as network:
             with self.assertRaises(server.AIUnavailable): server.ai('Bonjour')
             status,payload=server.perform_action('/api/ask',{'question':'Bonjour'})
-            self.assertEqual(status,503)
-            self.assertIn('locale',payload['error'])
+            self.assertEqual(status,404)
+            self.assertEqual(payload['error'],'Introuvable')
             network.assert_not_called()
 
-    def test_local_ai_uses_foundry_without_api_key(self):
-        from io import BytesIO
-        response=BytesIO(json.dumps({'choices':[{'message':{'content':'Explication locale en français.'}}]}).encode())
-        with patch('urllib.request.urlopen',return_value=response) as network:
-            answer=server.local_ai('Explique cette piste.')
-        self.assertEqual(answer,'Explication locale en français.')
-        request=network.call_args.args[0]
-        self.assertEqual(request.full_url,'http://127.0.0.1:56786/v1/chat/completions')
-        payload=json.loads(request.data)
-        self.assertEqual(payload['model'],'Phi-4-mini-instruct-generic-gpu')
-        self.assertNotIn('Authorization',dict(request.header_items()))
-
-    def test_local_ai_status_waits_until_launcher_marks_model_ready(self):
-        from io import BytesIO
-        marker=pathlib.Path(tempfile.gettempdir())/('signal-ready-'+uuid.uuid4().hex+'.txt')
-        previous=server.LOCAL_AI_READY_FILE
-        server.LOCAL_AI_READY_FILE=marker
-        payload={'data':[{'id':'Phi-4-mini-instruct-generic-gpu'}]}
-        def response(*_args,**_kwargs):
-            return BytesIO(json.dumps(payload).encode())
-        try:
-            with patch.dict(server.os.environ,{'APP_ENV':''}),patch('urllib.request.urlopen',side_effect=response):
-                self.assertFalse(server.local_ai_status(force=True)['available'])
-                marker.write_text('Phi-4-mini-instruct-generic-gpu',encoding='utf-8')
-                self.assertTrue(server.local_ai_status(force=True)['available'])
-        finally:
-            marker.unlink(missing_ok=True)
-            server.LOCAL_AI_READY_FILE=previous
-
-    def test_chat_memory_is_local_persistent_and_clearable(self):
-        with patch.object(server,'ai',side_effect=['Première réponse','Réponse de suivi']) as model:
-            status,first=server.perform_action('/api/ask',{'question':'Comment protéger un répertoire local ?'})
-            self.assertEqual(status,200)
-            status,second=server.perform_action('/api/ask',{'question':'Est-ce que Microsoft Fabric peut le faire ?'})
-        self.assertEqual(status,200)
-        self.assertEqual(len(second['history']),4)
-        follow_up_prompt=model.call_args_list[1].args[0]
-        self.assertIn('Comment protéger un répertoire local ?',follow_up_prompt)
-        self.assertIn('Première réponse',follow_up_prompt)
-        self.assertIn('Microsoft Fabric',follow_up_prompt)
-        self.assertEqual(len(server.state()['chat_history']),4)
-        status,cleared=server.perform_action('/api/chat-clear',{})
-        self.assertEqual(status,200)
-        self.assertEqual(cleared['history'],[])
-        self.assertEqual(server.state()['chat_history'],[])
+    def test_state_exposes_no_local_ai_configuration(self):
+        state=server.state()
+        self.assertNotIn('ai_local',state)
+        self.assertNotIn('ai_model',state)
+        self.assertNotIn('ai_status',state)
+        self.assertNotIn('chat_history',state)
 
     def test_score_is_explained_and_bounded(self):
         a=server.classify('Copilot Power BI production maintenance qualité automatisation','')

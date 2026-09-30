@@ -59,6 +59,3 @@ def generate_daily():
     with server.conn() as c:
         c.execute("INSERT INTO settings(key,value) VALUES('daily_ideas',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(json.dumps(value,ensure_ascii=False),))
     return {'status':'generated','count':3,'date':today}
-
-def explain(body):
-    raise server.AIUnavailable('Mode sans frais API : préparez votre question et copiez-la dans ChatGPT pour une réponse personnalisée.')
