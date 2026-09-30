@@ -31,7 +31,7 @@ Configuration minimale conseillée : Windows 10 ou 11, 16 Go de RAM, environ 5 G
 
 La traduction utilise un point d’accès Google sans clé et sans garantie de disponibilité. Seuls les titres et extraits publics sont transmis ; jamais les notes personnelles. Les traductions manquantes sont signalées en français et réessayées lors de la prochaine collecte.
 
-L’assistant utilise par défaut `phi-4-mini-instruct-openvino-gpu` via Microsoft Foundry Local. Pour une question, il reçoit les extraits locaux les plus pertinents et les notes/projets enregistrés. Il ne consulte pas les pages complètes et ne fait pas de recherche web générale. Les scores des articles restent calculés par mots-clés afin de ne pas faire travailler le modèle pendant toute la collecte.
+L’assistant utilise par défaut la variante GPU générique de Phi-4 Mini via Microsoft Foundry Local. Le démarrage initial prend généralement 20 à 60 secondes ; l’application active automatiquement les boutons IA quand le modèle est réellement prêt. Pour une question, il reçoit les extraits locaux les plus pertinents et les notes/projets enregistrés. Il ne consulte pas les pages complètes et ne fait pas de recherche web générale. Les scores des articles restent calculés par mots-clés afin de ne pas faire travailler le modèle pendant toute la collecte.
 
 Lorsque le PC disposera de 32 Go de RAM, un modèle local 7B ou plus pourra remplacer Phi-4 Mini. Phi-4 Mini reste le réglage adapté à 16 Go sur ce PC.
 

@@ -3,6 +3,9 @@ $ErrorActionPreference = 'Stop'
 $appUrl = 'http://127.0.0.1:8765/'
 $logOut = Join-Path $env:TEMP 'signal-veille-ia.log'
 $logErr = Join-Path $env:TEMP 'signal-veille-ia-erreurs.log'
+$foundryLogOut = Join-Path $env:TEMP 'signal-foundry.log'
+$foundryLogErr = Join-Path $env:TEMP 'signal-foundry-erreurs.log'
+$foundryReady = Join-Path $env:TEMP 'signal-foundry-ready.txt'
 $edgeProfile = Join-Path $env:LOCALAPPDATA 'Signal Veille IA\Profil Edge'
 $serverProcess = $null
 $foundryLoaderProcess = $null
@@ -100,11 +103,32 @@ try {
   }
 
   if ($foundryAvailable) {
-    $foundryLoaderProcess = Start-Process -FilePath 'powershell.exe' -WorkingDirectory $env:TEMP `
-      -WindowStyle Hidden -PassThru -ArgumentList @(
-      '-NoProfile', '-Command',
-      "foundry server start | Out-Null; foundry model load phi-4-mini | Out-Null"
+    Remove-Item -LiteralPath $foundryReady -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $foundryLogOut, $foundryLogErr -Force -ErrorAction SilentlyContinue
+    $foundryStartScript = @'
+$ErrorActionPreference = 'Stop'
+foundry server stop 2>$null | Out-Null
+foreach ($attempt in 1..30) {
+  if (-not (Get-Process -Name 'foundrylocald' -ErrorAction SilentlyContinue)) { break }
+  Start-Sleep -Milliseconds 500
+}
+Get-Process -Name 'foundrylocald' -ErrorAction SilentlyContinue |
+  Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Milliseconds 500
+foundry server start --port 56786 | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Le serveur Foundry ne peut pas démarrer.' }
+foundry model load 'Phi-4-mini-instruct-generic-gpu:5' | Out-Null
+if ($LASTEXITCODE -ne 0) { throw 'Le modèle Phi-4 Mini ne peut pas être chargé.' }
+Set-Content -LiteralPath (Join-Path $env:TEMP 'signal-foundry-ready.txt') `
+  -Value 'Phi-4-mini-instruct-generic-gpu' -Encoding UTF8
+'@
+    $encodedFoundryStart = [Convert]::ToBase64String(
+      [Text.Encoding]::Unicode.GetBytes($foundryStartScript)
     )
+    $foundryLoaderProcess = Start-Process -FilePath 'powershell.exe' -WorkingDirectory $env:TEMP `
+      -WindowStyle Hidden -PassThru -RedirectStandardOutput $foundryLogOut `
+      -RedirectStandardError $foundryLogErr `
+      -ArgumentList @('-NoProfile', '-EncodedCommand', $encodedFoundryStart)
   }
 
   New-Item -ItemType Directory -Force -Path $edgeProfile | Out-Null
@@ -139,6 +163,7 @@ try {
     Get-Process -Name 'foundrylocald' -ErrorAction SilentlyContinue |
       Stop-Process -Force -ErrorAction SilentlyContinue
   }
+  Remove-Item -LiteralPath $foundryReady -Force -ErrorAction SilentlyContinue
   if ($createdNew) { $singleInstance.ReleaseMutex() }
   $singleInstance.Dispose()
 }

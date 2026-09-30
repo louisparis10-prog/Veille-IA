@@ -53,8 +53,25 @@ class Tests(unittest.TestCase):
         request=network.call_args.args[0]
         self.assertEqual(request.full_url,'http://127.0.0.1:56786/v1/chat/completions')
         payload=json.loads(request.data)
-        self.assertEqual(payload['model'],'phi-4-mini-instruct-openvino-gpu')
+        self.assertEqual(payload['model'],'Phi-4-mini-instruct-generic-gpu')
         self.assertNotIn('Authorization',dict(request.header_items()))
+
+    def test_local_ai_status_waits_until_launcher_marks_model_ready(self):
+        from io import BytesIO
+        marker=pathlib.Path(tempfile.gettempdir())/('signal-ready-'+uuid.uuid4().hex+'.txt')
+        previous=server.LOCAL_AI_READY_FILE
+        server.LOCAL_AI_READY_FILE=marker
+        payload={'data':[{'id':'Phi-4-mini-instruct-generic-gpu'}]}
+        def response(*_args,**_kwargs):
+            return BytesIO(json.dumps(payload).encode())
+        try:
+            with patch.dict(server.os.environ,{'APP_ENV':''}),patch('urllib.request.urlopen',side_effect=response):
+                self.assertFalse(server.local_ai_status(force=True)['available'])
+                marker.write_text('Phi-4-mini-instruct-generic-gpu',encoding='utf-8')
+                self.assertTrue(server.local_ai_status(force=True)['available'])
+        finally:
+            marker.unlink(missing_ok=True)
+            server.LOCAL_AI_READY_FILE=previous
 
     def test_score_is_explained_and_bounded(self):
         a=server.classify('Copilot Power BI production maintenance qualité automatisation','')
