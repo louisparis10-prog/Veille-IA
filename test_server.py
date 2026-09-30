@@ -73,6 +73,23 @@ class Tests(unittest.TestCase):
             marker.unlink(missing_ok=True)
             server.LOCAL_AI_READY_FILE=previous
 
+    def test_chat_memory_is_local_persistent_and_clearable(self):
+        with patch.object(server,'ai',side_effect=['Première réponse','Réponse de suivi']) as model:
+            status,first=server.perform_action('/api/ask',{'question':'Comment protéger un répertoire local ?'})
+            self.assertEqual(status,200)
+            status,second=server.perform_action('/api/ask',{'question':'Est-ce que Microsoft Fabric peut le faire ?'})
+        self.assertEqual(status,200)
+        self.assertEqual(len(second['history']),4)
+        follow_up_prompt=model.call_args_list[1].args[0]
+        self.assertIn('Comment protéger un répertoire local ?',follow_up_prompt)
+        self.assertIn('Première réponse',follow_up_prompt)
+        self.assertIn('Microsoft Fabric',follow_up_prompt)
+        self.assertEqual(len(server.state()['chat_history']),4)
+        status,cleared=server.perform_action('/api/chat-clear',{})
+        self.assertEqual(status,200)
+        self.assertEqual(cleared['history'],[])
+        self.assertEqual(server.state()['chat_history'],[])
+
     def test_score_is_explained_and_bounded(self):
         a=server.classify('Copilot Power BI production maintenance qualité automatisation','')
         self.assertLessEqual(a['score'],100); self.assertGreaterEqual(a['score'],0); self.assertEqual(a['mode'],'Mots-clés'); self.assertIn('Correspondances',a['reason'])

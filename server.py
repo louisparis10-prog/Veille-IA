@@ -63,6 +63,7 @@ def init():
     with conn() as c:
         c.executescript('''CREATE TABLE IF NOT EXISTS articles(id TEXT PRIMARY KEY,title TEXT,url TEXT UNIQUE,source TEXT,published TEXT,excerpt TEXT,analysis TEXT,read INTEGER DEFAULT 0,favorite INTEGER DEFAULT 0);
         CREATE TABLE IF NOT EXISTS items(id INTEGER PRIMARY KEY,title TEXT,stage TEXT,notes TEXT DEFAULT '',article_id TEXT,created TEXT);
+        CREATE TABLE IF NOT EXISTS chat_messages(id INTEGER PRIMARY KEY AUTOINCREMENT,role TEXT NOT NULL,content TEXT NOT NULL,created TEXT NOT NULL);
         CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT);
         CREATE TABLE IF NOT EXISTS sources(name TEXT PRIMARY KEY,url TEXT,status TEXT,checked TEXT);
         CREATE TABLE IF NOT EXISTS activity(day TEXT PRIMARY KEY);''')
@@ -74,6 +75,18 @@ def clean(s):
     return re.sub(r'\s+',' ',html.unescape(re.sub('<[^>]+>', ' ', s or ''))).strip()
 def get_setting(key):
     with conn() as c: return c.execute('SELECT value FROM settings WHERE key=?',(key,)).fetchone()['value']
+
+def recent_chat(limit=8):
+    with conn() as c:
+        rows=c.execute('SELECT role,content,created FROM chat_messages ORDER BY id DESC LIMIT ?',(limit,)).fetchall()
+    return [dict(row) for row in reversed(rows)]
+
+def remember_exchange(question,answer):
+    created=datetime.now(timezone.utc).isoformat()
+    with conn() as c:
+        c.execute('INSERT INTO chat_messages(role,content,created) VALUES(?,?,?)',('user',question[:4000],created))
+        c.execute('INSERT INTO chat_messages(role,content,created) VALUES(?,?,?)',('assistant',answer[:8000],created))
+        c.execute('DELETE FROM chat_messages WHERE id NOT IN (SELECT id FROM chat_messages ORDER BY id DESC LIMIT 40)')
 
 def article_guide(title, details, source, category):
     """Construire une fiche de lecture factuelle, sans appel à une IA payante."""
@@ -443,7 +456,8 @@ def state():
         import ideas
         local_status=local_ai_status()
         paid_ai=bool(os.environ.get('OPENAI_API_KEY')) and os.environ.get('ALLOW_PAID_AI')=='true'
-        return dict(articles=articles,items=items,daily_ideas=ideas.read_daily(),sources=[dict(r,official=news_sources.BY_NAME.get(r['name'],{}).get('official',r['url'])) for r in c.execute('SELECT * FROM sources ORDER BY name')],interests=get_setting('interests'),ai=local_status['available'] or paid_ai,ai_local=local_status['available'],ai_model=local_status['model'],ai_status=local_status['message'],syncing=LOCK.locked(),days=[r['day'] for r in c.execute('SELECT day FROM activity')])
+        chat_history=[dict(r) for r in c.execute('SELECT role,content,created FROM chat_messages ORDER BY id DESC LIMIT 8').fetchall()][::-1]
+        return dict(articles=articles,items=items,chat_history=chat_history,daily_ideas=ideas.read_daily(),sources=[dict(r,official=news_sources.BY_NAME.get(r['name'],{}).get('official',r['url'])) for r in c.execute('SELECT * FROM sources ORDER BY name')],interests=get_setting('interests'),ai=local_status['available'] or paid_ai,ai_local=local_status['available'],ai_model=local_status['model'],ai_status=local_status['message'],syncing=LOCK.locked(),days=[r['day'] for r in c.execute('SELECT day FROM activity')])
 def perform_action(path,b):
     if path in ('/api/explain','/api/ai-check'):
         try:
@@ -468,16 +482,28 @@ def perform_action(path,b):
         with conn() as c:
             c.execute("UPDATE settings SET value=? WHERE key='interests'",(str(b['interests'])[:1000],))
             for r in c.execute('SELECT id,title,excerpt FROM articles').fetchall(): c.execute('UPDATE articles SET analysis=? WHERE id=?',(json.dumps(classify(r['title'],r['excerpt'],str(b['interests'])[:1000]),ensure_ascii=False),r['id']))
+    elif path=='/api/chat-clear':
+        with conn() as c: c.execute('DELETE FROM chat_messages')
+        return 200, {'ok':True,'history':[]}
     elif path=='/api/ask':
         s=state(); q=str(b.get('question',''))[:2000]; words=re.findall(r'\w{3,}',q.lower())
         if not q.strip(): return 400, {'error':'Écrivez une question.'}
         ranked=sorted(s['articles'],key=lambda a:sum(w in (a['title']+' '+a['excerpt']).lower() for w in words),reverse=True)[:8]
         context=[dict(id=i+1,title=a['title'],excerpt=a['excerpt'][:700],date=a['published']) for i,a in enumerate(ranked)]
+        history=recent_chat()
+        history_context=[]; history_size=0
+        for message in reversed(history):
+            compact={'role':message['role'],'content':message['content'][:1200]}
+            size=len(compact['content'])
+            if history_context and history_size+size>3600: break
+            history_context.append(compact); history_size+=size
+        history_context.reverse()
         try:
-            answer=ai('Question : '+q+'\nSources locales : '+json.dumps(context,ensure_ascii=False)+'\nNotes et projets locaux : '+json.dumps(s['items'],ensure_ascii=False)[:3000])
+            answer=ai('Conversation locale précédente : '+json.dumps(history_context,ensure_ascii=False)+'\nQuestion actuelle : '+q+'\nSources locales : '+json.dumps(context,ensure_ascii=False)+'\nNotes et projets locaux : '+json.dumps(s['items'],ensure_ascii=False)[:3000])
         except AIUnavailable as error:
             return 503, {'error':str(error)}
-        return 200, {'answer':answer,'sources':[{'title':a['title'],'url':a['url']} for a in ranked]}
+        remember_exchange(q,answer)
+        return 200, {'answer':answer,'history':recent_chat(),'sources':[{'title':a['title'],'url':a['url']} for a in ranked]}
     else: return 404, {'error':'Introuvable'}
     return 200, {'ok':True}
 

@@ -15,6 +15,7 @@ Configuration minimale conseillée : Windows 10 ou 11, 16 Go de RAM, environ 5 G
 ## Fonctions
 
 - Assistant IA entièrement local avec Microsoft Foundry Local et Phi-4 Mini, adapté à 16 Go de RAM : explication des articles, questions sur les pistes et recherche dans les extraits enregistrés.
+- Mémoire de conversation locale : les huit derniers messages sont fournis au modèle pour comprendre les questions de suivi. L’historique reste dans `veille.sqlite3` et peut être effacé depuis l’interface.
 - Trois pistes quotidiennes préparées : deux applications et une création, issues de 60 fiches pédagogiques. Rotation sans répétition pendant 20 jours puis reprise ; historique conservé sur 30 jours.
 - « Comprendre / poser une question » permet d’interroger directement l’IA locale. La copie manuelle de la question reste disponible comme solution de secours.
 - 26 sources couvrant les principaux acteurs IA : OpenAI, Microsoft, Google/DeepMind, Anthropic, Meta, AWS, NVIDIA, Mistral, DeepSeek, Alibaba/Qwen, Hugging Face, IBM, Cohere, xAI, Perplexity, Adobe, Stability AI, Runway, ElevenLabs, Midjourney, Apple et Salesforce. Flux officiels et relais Google Actualités limités aux domaines officiels ; couverture non exhaustive, sans API payante.
