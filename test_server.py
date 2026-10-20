@@ -132,17 +132,22 @@ class Tests(unittest.TestCase):
         with server.conn() as c:
             self.assertEqual(c.execute('SELECT title FROM articles').fetchone()['title'],'Official update')
 
-    def test_unavailable_translation_retries_and_keeps_french_interface(self):
+    def test_unavailable_translation_shows_original_text_and_retries(self):
         details='New features are presented in this official excerpt with enough information to explain their purpose and expected use by customers.'
         record=[('Official update','https://example.com/news',None,details)]
         with patch.object(server,'fetch_feed',return_value=record),patch.object(server,'enrich_record',side_effect=lambda r,c,v:r),patch.dict(server.os.environ,{'OPENAI_API_KEY':''}),patch.object(server.translation,'translate_public',side_effect=OSError('offline')):
             server.sync()
         a=server.state()['articles'][0]
         self.assertTrue(a['translation_pending'])
-        self.assertIn('en attente',a['title'])
-        self.assertNotIn('New features',a['summary'])
-        with patch.object(server.translation,'translate_public',return_value='Texte français'):
+        self.assertEqual(a['title'],'Official update')
+        self.assertIn('New features',a['summary'])
+        self.assertIn('New features',a['details'])
+        self.assertEqual(a['excerpt_label'],'Extrait original de la publication officielle')
+        french='Texte français suffisamment détaillé pour expliquer les nouvelles fonctions, leur objectif et leur utilisation attendue par les clients.'
+        with patch.object(server.translation,'translate_public',return_value=french):
             server.translate_articles()
-        self.assertFalse(server.state()['articles'][0]['translation_pending'])
+        translated=server.state()['articles'][0]
+        self.assertFalse(translated['translation_pending'])
+        self.assertEqual(translated['excerpt_label'],'Extrait traduit de la publication officielle')
 
 if __name__=='__main__': unittest.main()

@@ -327,20 +327,28 @@ def state():
         articles=[dict(r) for r in c.execute('SELECT * FROM articles ORDER BY published DESC NULLS LAST')]
         for a in articles:
             a.update(json.loads(a.pop('analysis')))
-            a['original_title']=a['title']
+            original_title=a['title']
+            original_summary=a['summary'] or ''
+            original_details=a['excerpt'][:1800]
+            a['original_title']=original_title
             a['original_excerpt']=a['excerpt']
-            title_fr=translation.cached(c,a['title'])
-            summary_fr=translation.cached(c,a['summary'])
-            details_fr=translation.cached(c,a['excerpt'][:1800])
+            title_fr=translation.cached(c,original_title)
+            summary_fr=translation.cached(c,original_summary)
+            details_fr=translation.cached(c,original_details)
             a['translation_pending']=title_fr is None or summary_fr is None
             a['details_pending']=details_fr is None
-            a['title']=title_fr or 'Traduction du titre en attente — '+(a['source'] or 'source non renseignée')
-            a['summary']=summary_fr or 'La traduction de cet extrait est momentanément indisponible. Relancez la collecte pour réessayer ou consultez la source originale.'
-            a['details']=details_fr or a['summary']
+            a['title']=title_fr or original_title
+            a['summary']=summary_fr or original_summary or original_details or 'Aucun extrait n’a été fourni par cette source.'
+            a['details']=details_fr or original_details or a['summary']
             a['excerpt']=a['details']
             a['category']={'Data & BI':'Données et décisionnel','Copilot & productivité':'Copilot et productivité','IA & innovation':'IA et innovation'}.get(a['category'],a['category'])
             a.update(article_guide(a['title'],a['details'],a['source'],a['category']))
-            a['excerpt_label']='Extrait de la publication officielle' if a['details_available'] else 'Extrait indisponible'
+            if not a['details_available']:
+                a['excerpt_label']='Extrait indisponible'
+            elif a['details_pending']:
+                a['excerpt_label']='Extrait original de la publication officielle'
+            else:
+                a['excerpt_label']='Extrait traduit de la publication officielle'
         items=[dict(r) for r in c.execute('SELECT * FROM items ORDER BY id DESC')]
         for item in items:
             # Traduire les titres importés sans modifier les notes personnelles.
