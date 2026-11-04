@@ -8,9 +8,9 @@ import re
 def _pattern(terms):
     parts=[]
     for term in terms:
-        escaped=re.escape(term.lower()).replace(r'\ ',r'\s+')
-        # Les termes se terminant par « * » sont des racines (manufactur* → manufacturing, manufacturer…).
-        parts.append(r'\b'+escaped[:-2]+r'\w*' if term.endswith('*') else r'\b'+escaped+r'\b')
+        # « * » marque une racine (manufactur* → manufacturing, jumeau* numérique* → jumeaux numériques).
+        escaped=re.escape(term.lower()).replace(r'\ ',r'\s+').replace(r'\*',r'\w*')
+        parts.append(r'\b'+escaped+('' if term.endswith('*') else r'\b'))
     return re.compile('|'.join(parts),re.IGNORECASE)
 
 # (catégorie, poids, mots-clés). L'ordre sert d'arbitrage en cas d'égalité.

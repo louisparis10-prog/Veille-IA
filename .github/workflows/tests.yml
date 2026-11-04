@@ -26,10 +26,18 @@ jobs:
           python-version: '3.13'
           cache: pip
       - run: pip install -r requirements.txt
-      - run: python -m unittest test_server test_web
+      - name: Tests unitaires
+        run: |
+          set -o pipefail
+          python -m unittest test_server test_web 2>&1 | tee unittest.log
       - name: PostgreSQL et import SQLite
         env:
           TEST_POSTGRES_URL: postgresql://signal:test_only_password@localhost:5432/signal_test
-        run: python -m unittest test_postgres
+        run: |
+          set -o pipefail
+          python -m unittest test_postgres 2>&1 | tee -a unittest.log
       - run: node --check public/app.js
+      - name: Afficher les tests en échec
+        if: failure()
+        run: test -f unittest.log && python .github/show_failures.py unittest.log || true
 
