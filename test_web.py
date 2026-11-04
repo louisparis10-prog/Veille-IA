@@ -1,68 +1,112 @@
-import base64
 import os
 import unittest
 import uuid
 from unittest.mock import patch
+import auth
 import server
 from app import create_app
 
+PASSWORD='mot-de-passe-de-test'
+
 class WebTests(unittest.TestCase):
     def setUp(self):
-        self.environment=patch.dict(os.environ,{'DATABASE_URL':'','RENDER':'','APP_ENV':'test','APP_PASSWORD':'test-password-123456','APP_USERNAME':'louis'})
+        self.environment=patch.dict(os.environ,{'DATABASE_URL':'','RENDER':'','APP_ENV':'test'})
         self.environment.start()
+        self.iterations=patch.object(auth,'ITERATIONS',1000); self.iterations.start()
+        self.sleep=patch('app.time.sleep'); self.sleep.start()
         self.previous=server.DB
         server.DB=server.ROOT/('test-'+uuid.uuid4().hex+'.sqlite3')
         server.init()
-        self.client=create_app().test_client(); server.AUTO_TRANSLATE=False
-        token=base64.b64encode(b'louis:test-password-123456').decode()
-        self.headers={'Authorization':'Basic '+token,'Origin':'http://localhost'}
+        self.app=create_app(); server.AUTO_TRANSLATE=False
+        self.client=self.app.test_client()
+        self.assertEqual(self.client.post('/setup',data={'username':'louis','password':PASSWORD,'confirm':PASSWORD}).status_code,303)
+        self.headers={'Origin':'http://localhost'}
     def tearDown(self):
+        self.sleep.stop(); self.iterations.stop()
         server.DB.unlink(); server.DB=self.previous; self.environment.stop()
+    def visitor(self): return self.app.test_client()
+
+    def test_first_launch_asks_to_create_access(self):
+        auth.reset(server.conn)
+        app=create_app(); server.AUTO_TRANSLATE=False
+        client=app.test_client()
+        self.assertTrue(client.get('/').headers['Location'].endswith('/setup'))
+        self.assertTrue(client.get('/login').headers['Location'].endswith('/setup'))
+        self.assertTrue(client.get('/api/state').json['setup'])
+        with client.get('/setup') as page: self.assertEqual(page.status_code,200)
+        self.assertIn('m=faible',client.post('/setup',data={'username':'louis','password':'court','confirm':'court'}).headers['Location'])
+        self.assertIn('m=different',client.post('/setup',data={'username':'louis','password':PASSWORD,'confirm':PASSWORD+'x'}).headers['Location'])
+        self.assertIn('m=identifiant',client.post('/setup',data={'username':'avec espace','password':PASSWORD,'confirm':PASSWORD}).headers['Location'])
+        self.assertIsNone(auth.load(server.conn))
+        created=client.post('/setup',data={'username':'Louis','password':PASSWORD,'confirm':PASSWORD})
+        self.assertTrue(created.headers['Location'].endswith('/'))
+        self.assertEqual(client.get('/api/state').json['user'],'Louis')
+        record=auth.load(server.conn)
+        self.assertNotIn(PASSWORD,str(record))
+        # Une fois l'accès créé, personne ne peut le remplacer par la page de création.
+        other=app.test_client()
+        self.assertIn('m=existe',other.post('/setup',data={'username':'pirate','password':'autre-mot-de-passe','confirm':'autre-mot-de-passe'}).headers['Location'])
+        self.assertEqual(auth.load(server.conn)['username'],'Louis')
+        self.assertTrue(other.get('/setup').headers['Location'].endswith('/login'))
+
     def test_private_pages_and_public_health(self):
-        response=self.client.get('/')
-        self.assertEqual(response.status_code,302)
-        self.assertTrue(response.headers['Location'].endswith('/login'))
-        self.assertEqual(self.client.get('/api/state').status_code,401)
-        self.assertNotIn('WWW-Authenticate',self.client.get('/api/state').headers)
-        self.assertEqual(self.client.get('/healthz').status_code,200)
-        with self.client.get('/login') as response:
-            self.assertEqual(response.status_code,200)
-            self.assertIn('Connexion',response.get_data(as_text=True))
-        with self.client.get('/',headers=self.headers) as response:
-            self.assertEqual(response.status_code,200)
-    def test_login_page_session_and_logout(self):
-        wrong=self.client.post('/login',data={'username':'louis','password':'mauvais'})
-        self.assertEqual(wrong.status_code,303)
-        self.assertIn('m=identifiants',wrong.headers['Location'])
-        self.assertEqual(self.client.get('/api/state').status_code,401)
-        right=self.client.post('/login',data={'username':'louis','password':'test-password-123456','remember':'1'})
-        self.assertEqual(right.status_code,303)
+        visitor=self.visitor()
+        self.assertTrue(visitor.get('/').headers['Location'].endswith('/login'))
+        self.assertEqual(visitor.get('/api/state').status_code,401)
+        self.assertNotIn('WWW-Authenticate',visitor.get('/api/state').headers)
+        self.assertEqual(visitor.get('/healthz').status_code,200)
+        with visitor.get('/login') as page:
+            self.assertEqual(page.status_code,200)
+            self.assertIn('Connexion',page.get_data(as_text=True))
+        with self.client.get('/') as page: self.assertEqual(page.status_code,200)
+
+    def test_login_session_and_logout(self):
+        visitor=self.visitor()
+        self.assertIn('m=identifiants',visitor.post('/login',data={'username':'louis','password':'mauvais'}).headers['Location'])
+        self.assertEqual(visitor.get('/api/state').status_code,401)
+        right=visitor.post('/login',data={'username':'LOUIS','password':PASSWORD,'remember':'1'})
         self.assertTrue(right.headers['Location'].endswith('/'))
         self.assertIn('HttpOnly',right.headers['Set-Cookie'])
-        state=self.client.get('/api/state')
-        self.assertEqual(state.status_code,200)
-        self.assertEqual(state.json['user'],'louis')
-        self.assertEqual(self.client.get('/login').status_code,302)
-        self.assertEqual(self.client.post('/logout',json={},headers={'Origin':'https://other.example'}).status_code,403)
-        self.assertEqual(self.client.post('/logout',json={},headers={'Origin':'http://localhost'}).status_code,200)
-        self.assertEqual(self.client.get('/api/state').status_code,401)
+        self.assertEqual(visitor.get('/api/state').json['user'],'louis')
+        self.assertTrue(visitor.get('/login').headers['Location'].endswith('/'))
+        self.assertEqual(visitor.post('/logout',json={},headers={'Origin':'https://other.example'}).status_code,403)
+        self.assertEqual(visitor.post('/logout',json={},headers=self.headers).status_code,200)
+        self.assertEqual(visitor.get('/api/state').status_code,401)
+
     def test_login_from_another_site_is_refused(self):
-        response=self.client.post('/login',data={'username':'louis','password':'test-password-123456'},headers={'Origin':'https://other.example'})
+        visitor=self.visitor()
+        response=visitor.post('/login',data={'username':'louis','password':PASSWORD},headers={'Origin':'https://other.example'})
         self.assertIn('m=origine',response.headers['Location'])
-        self.assertEqual(self.client.get('/api/state').status_code,401)
+        self.assertEqual(visitor.get('/api/state').status_code,401)
+
     def test_repeated_failures_are_blocked(self):
-        with patch('app.time.sleep'):
-            for _ in range(8): self.client.post('/login',data={'username':'louis','password':'faux'})
-            response=self.client.post('/login',data={'username':'louis','password':'test-password-123456'})
-        self.assertIn('m=bloque',response.headers['Location'])
+        visitor=self.visitor()
+        for _ in range(8): visitor.post('/login',data={'username':'louis','password':'faux'})
+        self.assertIn('m=bloque',visitor.post('/login',data={'username':'louis','password':PASSWORD}).headers['Location'])
+
+    def test_change_password_invalidates_other_sessions(self):
+        other=self.visitor(); other.post('/login',data={'username':'louis','password':PASSWORD})
+        self.assertEqual(other.get('/api/state').status_code,200)
+        wrong=self.client.post('/api/password',json={'current':'faux','new':'nouveau-secret-123','confirm':'nouveau-secret-123'},headers=self.headers)
+        self.assertEqual(wrong.status_code,403)
+        mismatch=self.client.post('/api/password',json={'current':PASSWORD,'new':'nouveau-secret-123','confirm':'autre'},headers=self.headers)
+        self.assertEqual(mismatch.status_code,400)
+        done=self.client.post('/api/password',json={'current':PASSWORD,'new':'nouveau-secret-123','confirm':'nouveau-secret-123'},headers=self.headers)
+        self.assertEqual(done.status_code,200)
+        self.assertEqual(self.client.get('/api/state').status_code,200)
+        self.assertEqual(other.get('/api/state').status_code,401)
+        visitor=self.visitor()
+        self.assertIn('m=identifiants',visitor.post('/login',data={'username':'louis','password':PASSWORD}).headers['Location'])
+        self.assertTrue(visitor.post('/login',data={'username':'louis','password':'nouveau-secret-123'}).headers['Location'].endswith('/'))
+
     def test_cross_origin_post_is_blocked(self):
-        response=self.client.post('/api/item',json={'title':'Action'},headers={**self.headers,'Origin':'https://other.example'})
+        response=self.client.post('/api/item',json={'title':'Action'},headers={'Origin':'https://other.example'})
         self.assertEqual(response.status_code,403)
         self.assertEqual(server.state()['items'],[])
     def test_create_and_advance_action(self):
         response=self.client.post('/api/item',json={'title':'Réduire les saisies','stage':'Idée','notes':'Mesurer le temps gagné'},headers=self.headers)
         self.assertEqual(response.status_code,200)
-        item=self.client.get('/api/state',headers=self.headers).json['items'][0]
+        item=self.client.get('/api/state').json['items'][0]
         response=self.client.post('/api/item',json={**item,'stage':'Test'},headers=self.headers)
         self.assertEqual(response.status_code,200)
         self.assertEqual(server.state()['items'][0]['stage'],'Test')
@@ -73,23 +117,16 @@ class WebTests(unittest.TestCase):
         response=self.client.post('/api/settings',json={'interests':'robot'},headers=self.headers)
         self.assertEqual(response.status_code,200)
         self.assertIn('robot',server.state()['articles'][0]['reason'])
-    def test_production_rejects_missing_database_or_password(self):
+    def test_production_requires_database(self):
         with patch.dict(os.environ,{'APP_ENV':'production','DATABASE_URL':''}):
             with self.assertRaises(RuntimeError): create_app()
-        with patch.dict(os.environ,{'APP_ENV':'production','DATABASE_URL':'postgresql://unused','APP_PASSWORD':'court'}):
-            with self.assertRaises(RuntimeError): create_app()
-        with patch.dict(os.environ,{'APP_ENV':'production','DATABASE_URL':'postgresql://unused','APP_PASSWORD':''}):
-            # Sans mot de passe en production, l'application reste verrouillée.
-            locked=create_app().test_client(); server.AUTO_TRANSLATE=False
-            self.assertEqual(locked.get('/api/state').status_code,401)
-            self.assertIn('m=config',locked.get('/login').headers['Location'])
-            self.assertIn('m=config',locked.post('/login',data={'username':'louis','password':''}).headers['Location'])
+        server.AUTO_TRANSLATE=False
     def test_invalid_stage_and_payload(self):
         self.assertEqual(self.client.post('/api/item',json={'title':'A','stage':'invalid'},headers=self.headers).status_code,400)
         self.assertEqual(self.client.post('/api/item',json=[],headers=self.headers).status_code,400)
     def test_internal_error_does_not_disclose_credentials(self):
         with patch.object(server,'state',side_effect=RuntimeError('postgresql://private-password')):
-            response=self.client.get('/api/state',headers=self.headers)
+            response=self.client.get('/api/state')
         self.assertEqual(response.status_code,503)
         self.assertNotIn('private-password',response.get_data(as_text=True))
 

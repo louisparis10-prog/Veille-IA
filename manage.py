@@ -35,7 +35,7 @@ def migrate(source):
 
 def main():
     parser=argparse.ArgumentParser(description='Administration de Signal')
-    parser.add_argument('command',choices=['init','sync','migrate','check'])
+    parser.add_argument('command',choices=['init','sync','migrate','check','reset-access'])
     parser.add_argument('--source',default=str(server.DB))
     args=parser.parse_args()
     try:
@@ -47,6 +47,11 @@ def main():
             print(json.dumps(result,ensure_ascii=False))
             if all(s.startswith('Échec') for s in statuses) or result.get('pending',0): return 1
         elif args.command=='migrate': print(json.dumps(migrate(args.source),ensure_ascii=False))
+        elif args.command=='reset-access':
+            # Mot de passe oublié : supprime le compte ; la prochaine ouverture propose « Créer votre accès ».
+            import auth
+            auth.reset(server.conn)
+            print('Accès réinitialisé. Ouvrez l’application pour créer un nouvel identifiant et mot de passe.')
         elif args.command=='check':
             with server.conn() as c:
                 print(json.dumps({table:c.execute('SELECT COUNT(*) AS n FROM '+table).fetchone()['n'] for table in TABLES}))

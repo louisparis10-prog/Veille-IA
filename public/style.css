@@ -11,3 +11,4 @@
 .switch{display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted);padding:0 6px}.switch input{width:16px;height:16px;accent-color:var(--accent)}
 .more{text-align:center;margin:24px 0}.family-title{font:700 15px Manrope,sans-serif;margin:26px 0 6px;color:var(--text)}
 @media(max-width:1150px){.duo{grid-template-columns:1fr}}
+.password-form{display:grid;gap:12px;max-width:460px}.password-form label{display:grid;gap:6px;font-size:14px}.password-form button{justify-self:start;margin-top:4px}

@@ -48,6 +48,8 @@ input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px color-m
 .check{display:flex;align-items:center;gap:9px;font-weight:500;margin:0;cursor:pointer;color:var(--muted)}
 .check input{width:17px;height:17px;accent-color:var(--accent);margin:0}
 .caps{display:none;color:#b86e00;font-size:13px;margin-top:6px}
+.hint{color:var(--muted);font-size:13px;margin-top:6px}
+[hidden]{display:none!important}
 .submit{width:100%;border:0;border-radius:10px;background:var(--accent);color:#fff;font:700 16px 'DM Sans';padding:14px;cursor:pointer;display:flex;justify-content:center;align-items:center;gap:10px;transition:background .15s}
 .submit:hover{background:var(--accent-hover)}
 .submit:disabled{opacity:.75;cursor:wait}
@@ -82,8 +84,8 @@ input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px color-m
 <main class="form-side">
   <div class="card">
     <a class="logo mobile-logo" href="/login"><svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#182745"/><path d="M7 22V17M16 22V10M25 22V5" stroke="#5ee4bc" stroke-width="4" stroke-linecap="round"/></svg><div><b>signal</b><small>IA &amp; DIGITALISATION</small></div></a>
-    <h2>Connexion</h2>
-    <p class="lead">Accédez à votre espace de veille personnel.</p>
+    <h2 id="heading">Connexion</h2>
+    <p class="lead" id="lead">Accédez à votre espace de veille personnel.</p>
     <div id="alert" class="alert" role="alert"><span aria-hidden="true" id="alert-icon">!</span><span id="alert-text"></span></div>
     <form id="login" method="post" action="/login" autocomplete="on" novalidate>
       <div class="field">
@@ -97,11 +99,16 @@ input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px color-m
           <button type="button" class="toggle" id="toggle" aria-controls="password" aria-pressed="false">Afficher</button>
         </div>
         <div class="caps" id="caps">Majuscules activées</div>
+        <div class="hint" id="hint" hidden>10 caractères minimum. Une phrase courte et facile à retenir est idéale.</div>
       </div>
-      <div class="row">
+      <div class="field" id="confirm-field" hidden>
+        <label for="confirm">Confirmer le mot de passe</label>
+        <input type="password" id="confirm" name="confirm" autocomplete="new-password" maxlength="256">
+      </div>
+      <div class="row" id="remember-row">
         <label class="check"><input type="checkbox" name="remember" value="1" checked> Rester connecté 30 jours</label>
       </div>
-      <button class="submit" id="submit" type="submit"><span class="spinner" aria-hidden="true"></span><span>Se connecter</span></button>
+      <button class="submit" id="submit" type="submit"><span class="spinner" aria-hidden="true"></span><span id="submit-label">Se connecter</span></button>
     </form>
     <div class="secure"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Accès privé · connexion chiffrée</div>
   </div>
@@ -113,9 +120,25 @@ input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px color-m
     bloque:['error','Trop de tentatives. Patientez une minute avant de réessayer.'],
     expire:['info','Votre session a expiré. Reconnectez-vous pour continuer.'],
     deconnecte:['info','Vous êtes déconnecté. À bientôt !'],
-    config:['error','Connexion indisponible : le mot de passe de l’application n’est pas configuré sur le serveur.'],
+    existe:['info','Un accès existe déjà pour cette application. Connectez-vous.'],
+    identifiant:['error','Identifiant invalide : 1 à 60 caractères, sans espace.'],
+    faible:['error','Le mot de passe doit contenir au moins 10 caractères.'],
+    different:['error','Les deux mots de passe ne correspondent pas.'],
     origine:['error','La demande a été refusée pour des raisons de sécurité. Rechargez la page.']
   };
+  const setup=location.pathname==='/setup';
+  if(setup){
+    document.title='Créer votre accès · Signal';
+    document.getElementById('heading').textContent='Créer votre accès';
+    document.getElementById('lead').textContent='Première ouverture : choisissez l’identifiant et le mot de passe qui protégeront votre veille.';
+    document.getElementById('login').action='/setup';
+    document.getElementById('password').autocomplete='new-password';
+    document.getElementById('hint').hidden=false;
+    document.getElementById('confirm-field').hidden=false;
+    document.getElementById('confirm').required=true;
+    document.getElementById('remember-row').hidden=true;
+    document.getElementById('submit-label').textContent='Créer mon accès';
+  }
   const key=new URLSearchParams(location.search).get('m');
   const alert=document.getElementById('alert');
   if(messages[key]){alert.classList.add('show',messages[key][0]);document.getElementById('alert-text').textContent=messages[key][1];document.getElementById('alert-icon').textContent=messages[key][0]==='info'?'i':'!'}
@@ -125,7 +148,10 @@ input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px color-m
   pwd.addEventListener('keyup',e=>{document.getElementById('caps').style.display=e.getModifierState&&e.getModifierState('CapsLock')?'block':'none'});
   document.getElementById('login').addEventListener('submit',e=>{
     const u=document.getElementById('username');
-    if(!u.value.trim()||!pwd.value){e.preventDefault();alert.className='alert show error';document.getElementById('alert-text').textContent='Renseignez votre identifiant et votre mot de passe.';(u.value.trim()?pwd:u).focus();return}
+    const fail=(text,field)=>{e.preventDefault();alert.className='alert show error';document.getElementById('alert-icon').textContent='!';document.getElementById('alert-text').textContent=text;field.focus()};
+    if(!u.value.trim()||!pwd.value)return fail('Renseignez votre identifiant et votre mot de passe.',u.value.trim()?pwd:u);
+    if(setup&&pwd.value.length<10)return fail('Le mot de passe doit contenir au moins 10 caractères.',pwd);
+    if(setup&&pwd.value!==document.getElementById('confirm').value)return fail('Les deux mots de passe ne correspondent pas.',document.getElementById('confirm'));
     try{sessionStorage.setItem('signal-user',u.value.trim())}catch(_){}
     document.getElementById('submit').disabled=true;
   });

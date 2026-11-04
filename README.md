@@ -10,7 +10,7 @@ L'application web fonctionne sur Render et utilise PostgreSQL sur Neon. Le navig
 
 - Trois pistes quotidiennes préparées : deux applications et une création, issues de 60 fiches pédagogiques. Rotation sans répétition pendant 20 jours puis reprise ; historique conservé sur 30 jours.
 - « Comprendre / poser une question » prépare un texte clair à copier dans ChatGPT ou dans un outil approuvé par l’entreprise.
-- Page de connexion intégrée (identifiant et mot de passe, session signée « Rester connecté 30 jours », déconnexion). Identifiants lus dans `APP_USERNAME` et `APP_PASSWORD` (12 caractères minimum) ; sans `APP_PASSWORD` en production, l'application reste verrouillée. `SECRET_KEY` est facultative.
+- Accès géré par l'application elle-même (`auth.py`) : à la première ouverture, la page « Créer votre accès » fait choisir identifiant et mot de passe (10 caractères minimum). Seule une empreinte PBKDF2-SHA256 salée est enregistrée dans la base (table `settings`, clé `access`), jamais le mot de passe, ni dans le code ni sur Render. Ensuite : page de connexion, « Rester connecté 30 jours », déconnexion, blocage après 8 échecs par minute, changement d'identifiant ou de mot de passe dans Paramètres (les autres sessions sont alors déconnectées). Mot de passe oublié : `python manage.py reset-access`, puis recréer l'accès. `SECRET_KEY` est facultative.
 - 33 sources en trois familles :
   - **Outils IA** : OpenAI, Microsoft 365, Copilot Studio, Power Platform, Power BI, Fabric, Google/Gemini, DeepMind, Anthropic, Mistral, Meta, AWS, NVIDIA, DeepSeek, Qwen, Hugging Face, IBM, Cohere, xAI, Perplexity, Adobe, Salesforce ;
   - **Industrie** : Siemens (IA industrielle), ABB (process et papier), L'Usine Digitale ;
