@@ -61,13 +61,18 @@ def populate(connect, texts):
     with connect() as c:
         pending = [t for t in texts if cached(c,t) is None]
     def worker(text):
-        try:
-            french = translate_public(text)
-            with connect() as c:
-                c.execute('INSERT INTO translations VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET original=excluded.original, french=excluded.french',(identity(text),text,french))
-            return True
-        except Exception:
-            return False
+        try: return text, translate_public(text)
+        except Exception: return text, None
     with ThreadPoolExecutor(max_workers=3) as pool:
-        outcomes = list(pool.map(worker,pending))
-    return {'translated':sum(outcomes),'pending':len(outcomes)-sum(outcomes)}
+        results = [(text, french) for text, french in pool.map(worker,pending) if french]
+    # Écritures regroupées dans une seule connexion : pas de verrou concurrent sur la base.
+    saved = 0
+    for start in range(0, len(results), 50):
+        try:
+            with connect() as c:
+                for text, french in results[start:start+50]:
+                    c.execute('INSERT INTO translations VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET original=excluded.original, french=excluded.french',(identity(text),text,french))
+            saved += len(results[start:start+50])
+        except Exception:
+            pass
+    return {'translated':saved,'pending':len(pending)-saved}
