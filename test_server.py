@@ -166,7 +166,8 @@ class Tests(unittest.TestCase):
     def test_unavailable_translation_shows_original_text_and_retries(self):
         details='New features are presented in this official excerpt with enough information to explain their purpose and expected use by customers.'
         record=[('Official update','https://example.com/news',None,details)]
-        with patch.object(server,'fetch_feed',return_value=record),patch.object(server,'enrich_record',side_effect=lambda r,c,v:r),patch.dict(server.os.environ,{'OPENAI_API_KEY':''}),patch.object(server.translation,'translate_public',side_effect=OSError('offline')):
+        official=[('OpenAI',server.news_sources.BY_NAME['OpenAI']['feed'])]
+        with patch.object(server,'SOURCES',official),patch.object(server,'fetch_feed',return_value=record),patch.object(server,'enrich_record',side_effect=lambda r,c,v:r),patch.dict(server.os.environ,{'OPENAI_API_KEY':''}),patch.object(server.translation,'translate_public',side_effect=OSError('offline')):
             server.sync()
         a=server.state()['articles'][0]
         self.assertTrue(a['translation_pending'])
