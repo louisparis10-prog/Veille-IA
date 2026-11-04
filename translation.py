@@ -1,9 +1,13 @@
-"""Traduction des seuls contenus publics, avec cache SQLite persistant."""
+"""Traduction des seuls contenus publics, avec cache persistant."""
 import hashlib
 import json
+import re
+import time
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
+
+CHUNK = 1200  # caractères maximum envoyés par requête
 
 def initialize(c):
     c.execute('CREATE TABLE IF NOT EXISTS translations (id TEXT PRIMARY KEY, original TEXT NOT NULL, french TEXT NOT NULL)')
@@ -16,16 +20,41 @@ def cached(c, text):
     row = c.execute('SELECT french FROM translations WHERE id=?', (identity(text),)).fetchone()
     return row['french'] if row else None
 
-def translate_public(text):
+def chunks(text, size=CHUNK):
+    """Découpe aux fins de phrases pour ne jamais dépasser la taille acceptée."""
+    parts, current = [], ''
+    for sentence in re.split(r'(?<=[.!?])\s+', text):
+        while len(sentence) > size:
+            if current: parts.append(current); current = ''
+            parts.append(sentence[:size]); sentence = sentence[size:]
+        if current and len(current) + len(sentence) + 1 > size:
+            parts.append(current); current = sentence
+        else:
+            current = (current + ' ' + sentence).strip()
+    if current: parts.append(current)
+    return parts
+
+def translate_chunk(text):
     # Ce point d’accès sans clé n’a pas de garantie de disponibilité.
-    query = urllib.parse.urlencode({'client':'gtx','sl':'auto','tl':'fr','dt':'t','q':text})
-    request = urllib.request.Request('https://translate.googleapis.com/translate_a/single?' + query,
-                                     headers={'User-Agent':'Signal/1.0'})
-    with urllib.request.urlopen(request, timeout=25) as response:
-        result = json.load(response)
-    translated = ''.join(part[0] for part in result[0] if part and part[0])
-    if not translated.strip(): raise ValueError('Traduction vide')
-    return translated
+    url = 'https://translate.googleapis.com/translate_a/single?' + urllib.parse.urlencode(
+        {'client': 'gtx', 'sl': 'auto', 'tl': 'fr', 'dt': 't'})
+    data = urllib.parse.urlencode({'q': text}).encode('utf-8')
+    request = urllib.request.Request(url, data=data, headers={'User-Agent': 'Signal/1.0'})
+    last = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(request, timeout=25) as response:
+                result = json.load(response)
+            translated = ''.join(part[0] for part in result[0] if part and part[0])
+            if not translated.strip(): raise ValueError('Traduction vide')
+            return translated
+        except Exception as error:
+            last = error
+            time.sleep(1.5 * (attempt + 1))
+    raise last
+
+def translate_public(text):
+    return ' '.join(translate_chunk(part) for part in chunks(text))
 
 def populate(connect, texts):
     texts = list(dict.fromkeys(t for t in texts if t and t.strip()))

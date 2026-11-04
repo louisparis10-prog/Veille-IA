@@ -314,6 +314,20 @@ def translate_articles():
         texts.append(row['excerpt'][:1800])
     return translation.populate(conn,texts)
 
+# Traduction automatique en arrière-plan des articles encore en attente.
+AUTO_TRANSLATE=False  # activé par app.py sur l'hébergement
+TRANSLATING=threading.Lock()
+LAST_TRANSLATION_TRY=[0.0]
+def translate_in_background():
+    if not AUTO_TRANSLATE or time.time()-LAST_TRANSLATION_TRY[0]<60: return
+    if not TRANSLATING.acquire(False): return
+    LAST_TRANSLATION_TRY[0]=time.time()
+    def run():
+        try: translate_articles()
+        except Exception: pass
+        finally: TRANSLATING.release()
+    threading.Thread(target=run,daemon=True).start()
+
 def scheduler():
     while True:
         with conn() as c: row=c.execute('SELECT MIN(checked) t FROM sources').fetchone()
@@ -349,6 +363,7 @@ def state():
                 a['excerpt_label']='Extrait original de la publication officielle'
             else:
                 a['excerpt_label']='Extrait traduit de la publication officielle'
+        if any(a['translation_pending'] or a['details_pending'] for a in articles): translate_in_background()
         items=[dict(r) for r in c.execute('SELECT * FROM items ORDER BY id DESC')]
         for item in items:
             # Traduire les titres importés sans modifier les notes personnelles.
@@ -356,7 +371,7 @@ def state():
             if translated: item['title']=translated
         import ideas
         paid_ai=bool(os.environ.get('OPENAI_API_KEY')) and os.environ.get('ALLOW_PAID_AI')=='true'
-        return dict(articles=articles,items=items,daily_ideas=ideas.read_daily(),sources=[dict(r,official=news_sources.BY_NAME.get(r['name'],{}).get('official',r['url'])) for r in c.execute('SELECT * FROM sources ORDER BY name')],interests=get_setting('interests'),ai=paid_ai,syncing=LOCK.locked(),days=[r['day'] for r in c.execute('SELECT day FROM activity')])
+        return dict(articles=articles,items=items,daily_ideas=ideas.read_daily(),sources=[dict(r,official=news_sources.BY_NAME.get(r['name'],{}).get('official',r['url'])) for r in c.execute('SELECT * FROM sources ORDER BY name')],interests=get_setting('interests'),ai=paid_ai,syncing=LOCK.locked(),translating=TRANSLATING.locked(),days=[r['day'] for r in c.execute('SELECT day FROM activity')])
 def perform_action(path,b):
     if path=='/api/sync':
         threading.Thread(target=sync,daemon=True).start(); return 202, {'message':'Collecte lancée'}

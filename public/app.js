@@ -51,7 +51,7 @@ document.addEventListener('input',e=>{if(e.target.id==='filter'){const pos=e.tar
 document.addEventListener('submit',async e=>{e.preventDefault();try{if(e.target.id==='itemform'){const f=e.target;await api('item',{...editing,title:f.elements.title.value,stage:f.elements.stage.value,notes:f.elements.notes.value});$('#editor').close();toast('Action enregistrée');await refresh()}if(e.target.id==='settings'){await api('settings',{interests:e.target.elements.interests.value});toast('Profil enregistré');await refresh()}}catch(err){toast(err.message)}});
 if(localStorage.getItem('theme')==='dark')document.body.classList.add('dark');
 refresh().catch(e=>{$('#main').innerHTML=empty(esc(e.message))});
-setInterval(async()=>{if(data?.syncing&&!$('#editor').open){try{await refresh()}catch(e){toast(e.message)}}},5000);
+setInterval(async()=>{if((data?.syncing||data?.translating||data?.articles?.some(a=>a.translation_pending||a.details_pending))&&!$('#editor').open){try{await refresh()}catch(e){toast(e.message)}}},5000);
 if(document.modelContext?.registerTool){
  const life=new AbortController();window.addEventListener('pagehide',()=>life.abort(),{once:true});
  Promise.resolve(document.modelContext.registerTool({name:'start_idea_creation',description:'Ouvre le formulaire d’idée prérempli. Ne crée aucune donnée avant validation par l’utilisateur.',inputSchema:{type:'object',properties:{title:{type:'string',maxLength:300}},required:['title'],additionalProperties:false},annotations:{readOnlyHint:false},execute(input){if(!input||typeof input.title!=='string'||!input.title.trim()||input.title.length>300)throw Error('Titre invalide');openEditor({title:input.title,stage:'Idée'});return {status:'form_opened'};}},{signal:life.signal})).catch(()=>{});

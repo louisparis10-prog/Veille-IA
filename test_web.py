@@ -13,7 +13,7 @@ class WebTests(unittest.TestCase):
         self.previous=server.DB
         server.DB=server.ROOT/('test-'+uuid.uuid4().hex+'.sqlite3')
         server.init()
-        self.client=create_app().test_client()
+        self.client=create_app().test_client(); server.AUTO_TRANSLATE=False
         token=base64.b64encode(b'louis:test-password-123456').decode()
         self.headers={'Authorization':'Basic '+token,'Origin':'http://localhost'}
     def tearDown(self):

@@ -11,6 +11,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 import server
 
 def create_app():
+    server.AUTO_TRANSLATE=not os.environ.get('DISABLE_AUTO_TRANSLATE')
     app=Flask(__name__,static_folder=None)
     app.config['MAX_CONTENT_LENGTH']=30000
     production=os.environ.get('APP_ENV')=='production' or bool(os.environ.get('RENDER'))
