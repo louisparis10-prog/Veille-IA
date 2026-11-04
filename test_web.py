@@ -45,8 +45,11 @@ class WebTests(unittest.TestCase):
     def test_production_rejects_missing_database_or_password(self):
         with patch.dict(os.environ,{'APP_ENV':'production','DATABASE_URL':''}):
             with self.assertRaises(RuntimeError): create_app()
-        with patch.dict(os.environ,{'APP_ENV':'production','DATABASE_URL':'postgresql://unused','APP_PASSWORD':''}):
+        with patch.dict(os.environ,{'APP_ENV':'production','DATABASE_URL':'postgresql://unused','APP_PASSWORD':'court'}):
             with self.assertRaises(RuntimeError): create_app()
+        with patch.dict(os.environ,{'APP_ENV':'production','DATABASE_URL':'postgresql://unused','APP_PASSWORD':''}):
+            open_client=create_app().test_client(); server.AUTO_TRANSLATE=False
+            self.assertEqual(open_client.get('/api/state').status_code,200)
     def test_invalid_stage_and_payload(self):
         self.assertEqual(self.client.post('/api/item',json={'title':'A','stage':'invalid'},headers=self.headers).status_code,400)
         self.assertEqual(self.client.post('/api/item',json=[],headers=self.headers).status_code,400)

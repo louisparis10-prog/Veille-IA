@@ -17,8 +17,9 @@ def create_app():
     production=os.environ.get('APP_ENV')=='production' or bool(os.environ.get('RENDER'))
     password=os.environ.get('APP_PASSWORD','')
     username=os.environ.get('APP_USERNAME','louis')
-    if production and (not os.environ.get('DATABASE_URL') or len(password)<16):
-        raise RuntimeError('Configurer DATABASE_URL et APP_PASSWORD (16 caractères minimum) avant le démarrage.')
+    # Sans APP_PASSWORD, l'application est accessible sans connexion.
+    if production and (not os.environ.get('DATABASE_URL') or 0<len(password)<16):
+        raise RuntimeError('Configurer DATABASE_URL, et APP_PASSWORD (16 caractères minimum) s’il est défini, avant le démarrage.')
     if os.environ.get('RENDER'):
         app.wsgi_app=ProxyFix(app.wsgi_app,x_for=1,x_proto=1)
     failures=defaultdict(list)
