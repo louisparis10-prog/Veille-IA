@@ -77,9 +77,40 @@ class Tests(unittest.TestCase):
         state=server.state()
         self.assertEqual(state['articles'][0]['collection_mode'],'Publication officielle retrouvée via Google Actualités')
         self.assertIn('Google Actualités',next(s['status'] for s in state['sources'] if s['name']==name))
-        self.assertEqual(len(state['sources']),26)
+        self.assertEqual(len(state['sources']),len(server.news_sources.CATALOG))
         server.init()
-        self.assertEqual(len(server.state()['sources']),26)
+        self.assertEqual(len(server.state()['sources']),len(server.news_sources.CATALOG))
+    def test_paper_and_tool_news_rank_above_generic_news(self):
+        import relevance
+        paper=relevance.assess('Valmet launches AI assistant for paper machine operators','The new feature predicts web breaks on the paper machine and helps the pulp mill reduce downtime.','maintenance, qualité')
+        copilot=relevance.assess('Introducing new Copilot features in Excel and Outlook','Microsoft 365 Copilot can now summarize meetings in Teams.','Copilot')
+        generic=relevance.assess('A research residency for scientists','We are hiring researchers for a summer program.','maintenance')
+        self.assertEqual(paper['category'],'Papeterie et process')
+        self.assertIn('machine à papier',paper['opportunity'])
+        self.assertTrue(copilot['new_feature'])
+        self.assertIn('Microsoft 365 Copilot',copilot['tools'])
+        self.assertNotIn('Copilot',[t for t in copilot['tools'] if t!='Microsoft 365 Copilot'])
+        self.assertGreater(paper['score'],generic['score']+30)
+        self.assertGreater(copilot['score'],generic['score']+30)
+        data_center=relevance.assess('Old paper mill becomes a data center','The paper mill site will host a data center.','')
+        self.assertLess(data_center['score'],paper['score']-30)
+    def test_noise_pages_and_title_suffixes(self):
+        import relevance
+        self.assertTrue(relevance.is_noise('Ishmehar Chawla, Author - Salesforce'))
+        self.assertTrue(relevance.is_noise('Start your career at Valmet - Valmet'))
+        self.assertTrue(relevance.is_noise('Consultant in Agentic AI (f/m/d) - Siemens'))
+        self.assertTrue(relevance.is_noise('Anything','https://www.salesforce.com/blog/author/someone/'))
+        self.assertFalse(relevance.is_noise('Valmet to acquire MES business from Tieto','https://www.valmet.com/media/news/a'))
+        self.assertEqual(relevance.clean_title('Mistral Large 4 est en poids ouvert - mistral.ai','Mistral AI'),'Mistral Large 4 est en poids ouvert')
+        self.assertEqual(relevance.clean_title('Double rappel : la mémoire Agentforce - Salesforce','Salesforce IA'),'Double rappel : la mémoire Agentforce')
+        self.assertEqual(relevance.clean_title('Avant - après : un cas concret','OpenAI'),'Avant - après : un cas concret')
+    def test_noise_and_removed_sources_are_hidden_from_state(self):
+        import json
+        with server.conn() as c:
+            for ident,title,url,source in [('a','Real Copilot news','https://example.com/a','OpenAI'),('b','Jane Doe, Author - Salesforce','https://example.com/b','Salesforce IA'),('c','Voices news','https://example.com/c','ElevenLabs')]:
+                c.execute('INSERT INTO articles(id,title,url,source,excerpt,analysis) VALUES(?,?,?,?,?,?)',(ident,title,url,source,'Excerpt text',json.dumps(server.classify(title,'Excerpt text'))))
+        self.assertEqual([a['id'] for a in server.state()['articles']],['a'])
+        self.assertNotIn('excerpt',server.state()['articles'][0])
     def test_google_news_resolution_rejects_an_unofficial_domain(self):
         html='<div data-n-a-id="abc" data-n-a-ts="123" data-n-a-sg="sig"></div>'
         response=")]}'\n[[\"wrb.fr\",\"Fbv4je\",\"[\\\"garturlres\\\",\\\"https://evil.example/article\\\",1]\",null]]"

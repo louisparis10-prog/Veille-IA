@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Connexion · Signal</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23182745'/%3E%3Cpath d='M7 22V17M16 22V10M25 22V5' stroke='%235ee4bc' stroke-width='4'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@600;700;800&display=swap" rel="stylesheet">
+<style>
+:root{--navy:#15223d;--navy-2:#1d2f52;--mint:#5ee4bc;--bg:#f5f7fb;--card:#ffffff;--text:#1d2840;--muted:#66738a;--border:#dfe5ee;--accent:#325ed8;--accent-hover:#284fbd;--error-bg:#fdf0f0;--error:#b42828;--info-bg:#eef6f2;--info:#14745b}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1626;--card:#18233a;--text:#e8eef8;--muted:#9eabc2;--border:#2e3b55;--accent:#7f9ffc;--accent-hover:#9bb4ff;--error-bg:#3a1c22;--error:#ff9d9d;--info-bg:#15322b;--info:#7fe0bf}}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 'DM Sans',system-ui,sans-serif;display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr)}
+.brand-side{position:relative;overflow:hidden;background:radial-gradient(1200px 600px at -10% 110%,#22406f 0%,transparent 60%),linear-gradient(160deg,var(--navy) 0%,#101a30 100%);color:#c9d3e6;padding:56px 64px;display:flex;flex-direction:column}
+.brand-side::after{content:"";position:absolute;right:-120px;top:18%;width:420px;height:420px;border-radius:50%;border:1px solid rgba(94,228,188,.14);box-shadow:0 0 0 60px rgba(94,228,188,.04),0 0 0 120px rgba(94,228,188,.025)}
+.logo{display:flex;align-items:center;gap:14px;color:#fff;text-decoration:none}
+.logo svg{width:44px;height:44px}
+.logo b{font:800 30px Manrope,sans-serif;letter-spacing:-1px}
+.logo small{display:block;font:600 10px 'DM Sans';letter-spacing:2.4px;color:#9fb0cc;margin-top:2px}
+.pitch{margin:auto 0;max-width:460px;position:relative;z-index:1}
+.pitch h1{font:800 clamp(30px,3.2vw,42px)/1.12 Manrope,sans-serif;color:#fff;letter-spacing:-1.2px;margin:0 0 18px}
+.pitch h1 em{font-style:normal;color:var(--mint)}
+.pitch p{margin:0 0 28px;color:#aab8d0;font-size:17px}
+.features{list-style:none;padding:0;margin:0;display:grid;gap:14px}
+.features li{display:flex;gap:12px;align-items:flex-start;font-size:15px;color:#d5deee}
+.features li span{flex:none;width:26px;height:26px;border-radius:8px;background:rgba(94,228,188,.12);color:var(--mint);display:grid;place-items:center;font-size:14px}
+.brand-foot{font-size:12px;letter-spacing:1.6px;color:#7f8fab;position:relative;z-index:1}
+.form-side{display:flex;align-items:center;justify-content:center;padding:40px 24px}
+.card{width:100%;max-width:400px}
+.card h2{font:800 28px Manrope,sans-serif;letter-spacing:-.6px;margin:0 0 6px}
+.card .lead{color:var(--muted);margin:0 0 30px}
+.alert{display:none;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:10px;font-size:14px;margin-bottom:22px}
+.alert.show{display:flex}
+.alert.error{background:var(--error-bg);color:var(--error)}
+.alert.info{background:var(--info-bg);color:var(--info)}
+label{display:block;font-weight:600;font-size:14px;margin-bottom:7px}
+.field{margin-bottom:18px}
+.input-wrap{position:relative}
+input[type=text],input[type=password]{width:100%;font:inherit;color:var(--text);background:var(--card);border:1px solid var(--border);border-radius:10px;padding:13px 14px;transition:border-color .15s,box-shadow .15s}
+input[type=password],#password{padding-right:92px}
+input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 18%,transparent)}
+.toggle{position:absolute;right:6px;top:50%;transform:translateY(-50%);border:0;background:none;color:var(--accent);font:600 13px 'DM Sans';padding:8px 10px;border-radius:8px;cursor:pointer}
+.toggle:hover{background:color-mix(in srgb,var(--accent) 10%,transparent)}
+.row{display:flex;align-items:center;justify-content:space-between;margin:4px 0 26px;font-size:14px}
+.check{display:flex;align-items:center;gap:9px;font-weight:500;margin:0;cursor:pointer;color:var(--muted)}
+.check input{width:17px;height:17px;accent-color:var(--accent);margin:0}
+.caps{display:none;color:#b86e00;font-size:13px;margin-top:6px}
+.submit{width:100%;border:0;border-radius:10px;background:var(--accent);color:#fff;font:700 16px 'DM Sans';padding:14px;cursor:pointer;display:flex;justify-content:center;align-items:center;gap:10px;transition:background .15s}
+.submit:hover{background:var(--accent-hover)}
+.submit:disabled{opacity:.75;cursor:wait}
+.spinner{display:none;width:16px;height:16px;border:2px solid rgba(255,255,255,.45);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
+.submit:disabled .spinner{display:block}
+@keyframes spin{to{transform:rotate(360deg)}}
+.secure{display:flex;align-items:center;justify-content:center;gap:8px;color:var(--muted);font-size:13px;margin-top:26px}
+.mobile-logo{display:none}
+@media (max-width:860px){
+ body{grid-template-columns:1fr}
+ .brand-side{display:none}
+ .mobile-logo{display:flex;color:var(--text);margin-bottom:36px}
+ .mobile-logo small{color:var(--muted)}
+ .form-side{align-items:flex-start;padding-top:56px}
+}
+</style>
+</head>
+<body>
+<section class="brand-side" aria-hidden="true">
+  <a class="logo" href="/login"><svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#22365c"/><path d="M7 22V17M16 22V10M25 22V5" stroke="#5ee4bc" stroke-width="4" stroke-linecap="round"/></svg><div><b>signal</b><small>IA &amp; DIGITALISATION</small></div></a>
+  <div class="pitch">
+    <h1>Votre veille IA,<br><em>au service de l’usine.</em></h1>
+    <p>Les nouveautés des outils d’IA, triées pour l’industrie et la papeterie, traduites en français et transformées en pistes concrètes.</p>
+    <ul class="features">
+      <li><span>✓</span>Sources officielles : Microsoft, OpenAI, Google, Anthropic, Valmet, ABB…</li>
+      <li><span>✓</span>Pertinence calculée pour la production, la maintenance et la qualité</li>
+      <li><span>✓</span>De l’idée au déploiement : suivez vos tests et vos projets</li>
+    </ul>
+  </div>
+  <div class="brand-foot">VEILLE → COMPRENDRE → TESTER → DÉPLOYER</div>
+</section>
+<main class="form-side">
+  <div class="card">
+    <a class="logo mobile-logo" href="/login"><svg viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#182745"/><path d="M7 22V17M16 22V10M25 22V5" stroke="#5ee4bc" stroke-width="4" stroke-linecap="round"/></svg><div><b>signal</b><small>IA &amp; DIGITALISATION</small></div></a>
+    <h2>Connexion</h2>
+    <p class="lead">Accédez à votre espace de veille personnel.</p>
+    <div id="alert" class="alert" role="alert"><span aria-hidden="true" id="alert-icon">!</span><span id="alert-text"></span></div>
+    <form id="login" method="post" action="/login" autocomplete="on" novalidate>
+      <div class="field">
+        <label for="username">Identifiant</label>
+        <input type="text" id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required autofocus maxlength="120">
+      </div>
+      <div class="field">
+        <label for="password">Mot de passe</label>
+        <div class="input-wrap">
+          <input type="password" id="password" name="password" autocomplete="current-password" required maxlength="256">
+          <button type="button" class="toggle" id="toggle" aria-controls="password" aria-pressed="false">Afficher</button>
+        </div>
+        <div class="caps" id="caps">Majuscules activées</div>
+      </div>
+      <div class="row">
+        <label class="check"><input type="checkbox" name="remember" value="1" checked> Rester connecté 30 jours</label>
+      </div>
+      <button class="submit" id="submit" type="submit"><span class="spinner" aria-hidden="true"></span><span>Se connecter</span></button>
+    </form>
+    <div class="secure"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Accès privé · connexion chiffrée</div>
+  </div>
+</main>
+<script>
+(()=>{
+  const messages={
+    identifiants:['error','Identifiant ou mot de passe incorrect.'],
+    bloque:['error','Trop de tentatives. Patientez une minute avant de réessayer.'],
+    expire:['info','Votre session a expiré. Reconnectez-vous pour continuer.'],
+    deconnecte:['info','Vous êtes déconnecté. À bientôt !'],
+    config:['error','Connexion indisponible : le mot de passe de l’application n’est pas configuré sur le serveur.'],
+    origine:['error','La demande a été refusée pour des raisons de sécurité. Rechargez la page.']
+  };
+  const key=new URLSearchParams(location.search).get('m');
+  const alert=document.getElementById('alert');
+  if(messages[key]){alert.classList.add('show',messages[key][0]);document.getElementById('alert-text').textContent=messages[key][1];document.getElementById('alert-icon').textContent=messages[key][0]==='info'?'i':'!'}
+  if(key==='identifiants'){const u=sessionStorage.getItem('signal-user');if(u)document.getElementById('username').value=u;document.getElementById('password').focus()}
+  const pwd=document.getElementById('password'),toggle=document.getElementById('toggle');
+  toggle.addEventListener('click',()=>{const show=pwd.type==='password';pwd.type=show?'text':'password';toggle.textContent=show?'Masquer':'Afficher';toggle.setAttribute('aria-pressed',show);pwd.focus()});
+  pwd.addEventListener('keyup',e=>{document.getElementById('caps').style.display=e.getModifierState&&e.getModifierState('CapsLock')?'block':'none'});
+  document.getElementById('login').addEventListener('submit',e=>{
+    const u=document.getElementById('username');
+    if(!u.value.trim()||!pwd.value){e.preventDefault();alert.className='alert show error';document.getElementById('alert-text').textContent='Renseignez votre identifiant et votre mot de passe.';(u.value.trim()?pwd:u).focus();return}
+    try{sessionStorage.setItem('signal-user',u.value.trim())}catch(_){}
+    document.getElementById('submit').disabled=true;
+  });
+})();
+</script>
+</body>
+</html>

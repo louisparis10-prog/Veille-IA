@@ -1,14 +1,20 @@
-"""Point d'entrée WSGI Render, protégé par authentification HTTP."""
+"""Point d'entrée WSGI Render, protégé par une page de connexion et une session signée."""
 import hashlib
 import hmac
 import os
 import threading
 import time
 from collections import defaultdict
+from datetime import timedelta
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, jsonify, redirect, request, send_from_directory, session
 from werkzeug.middleware.proxy_fix import ProxyFix
 import server
+
+PUBLIC_PATHS = {'/healthz', '/login'}
+
+def _digest(value):
+    return hashlib.sha256((value or '').encode('utf-8')).digest()
 
 def create_app():
     server.AUTO_TRANSLATE=not os.environ.get('DISABLE_AUTO_TRANSLATE')
@@ -17,35 +23,61 @@ def create_app():
     production=os.environ.get('APP_ENV')=='production' or bool(os.environ.get('RENDER'))
     password=os.environ.get('APP_PASSWORD','')
     username=os.environ.get('APP_USERNAME','louis')
-    # Sans APP_PASSWORD, l'application est accessible sans connexion.
-    if production and (not os.environ.get('DATABASE_URL') or 0<len(password)<16):
-        raise RuntimeError('Configurer DATABASE_URL, et APP_PASSWORD (16 caractères minimum) s’il est défini, avant le démarrage.')
+    if production and not os.environ.get('DATABASE_URL'):
+        raise RuntimeError('Configurer DATABASE_URL avant le démarrage.')
+    if production and 0<len(password)<12:
+        raise RuntimeError('APP_PASSWORD doit contenir au moins 12 caractères.')
+    # En production, l'absence de mot de passe verrouille l'application ; en local elle reste ouverte.
+    locked=production and not password
+    auth_required=bool(password) or locked
+    # Clé de session : SECRET_KEY si fournie, sinon dérivée de secrets déjà présents sur le serveur.
+    secret=os.environ.get('SECRET_KEY') or hashlib.sha256(('signal-session|'+password+'|'+os.environ.get('DATABASE_URL','')+'|'+username).encode()).hexdigest()
+    app.config.update(SECRET_KEY=secret,SESSION_COOKIE_NAME='signal_session',SESSION_COOKIE_HTTPONLY=True,
+                      SESSION_COOKIE_SAMESITE='Lax',SESSION_COOKIE_SECURE=production,
+                      PERMANENT_SESSION_LIFETIME=timedelta(days=30))
+    # Toute modification de l'identifiant ou du mot de passe invalide les sessions existantes.
+    fingerprint=hmac.new(secret.encode(),('v1|'+username+'|'+password).encode(),hashlib.sha256).hexdigest()[:32]
     if os.environ.get('RENDER'):
         app.wsgi_app=ProxyFix(app.wsgi_app,x_for=1,x_proto=1)
     failures=defaultdict(list)
     failure_lock=threading.Lock()
 
-    def unauthorized():
-        return 'Connexion requise pour accéder à votre veille.',401,{'WWW-Authenticate':'Basic realm="Signal", charset="UTF-8"'}
+    def credentials_match(user,secret_value):
+        return bool(password) and hmac.compare_digest(_digest(user),_digest(username)) & hmac.compare_digest(_digest(secret_value),_digest(password))
+
+    def blocked(ip):
+        now=time.monotonic()
+        with failure_lock:
+            failures[ip]=[t for t in failures[ip] if now-t<60]
+            return len(failures[ip])>=8
+
+    def record_failure(ip):
+        with failure_lock: failures[ip].append(time.monotonic())
+
+    def authenticated():
+        if not auth_required: return True
+        if session.get('auth')==fingerprint: return True
+        # Accès programmatique (scripts, tests) : en-tête Basic accepté, sans fenêtre du navigateur.
+        auth=request.authorization
+        if auth and auth.type=='basic' and not blocked(request.remote_addr):
+            if credentials_match(auth.username,auth.password): return True
+            record_failure(request.remote_addr)
+        return False
+
+    def same_origin():
+        return request.headers.get('Origin') in (None,request.host_url.rstrip('/'))
 
     @app.before_request
     def protect():
-        if request.path=='/healthz': return None
-        if password:
-            now=time.monotonic(); ip=request.remote_addr
-            with failure_lock:
-                failures[ip]=[t for t in failures[ip] if now-t<60]
-                if len(failures[ip])>=10:
-                    return jsonify(error='Trop de tentatives. Réessayez dans une minute.'),429
-            auth=request.authorization
-            matches=auth and auth.type=='basic' and hmac.compare_digest(
-                hashlib.sha256((auth.username or '').encode()).digest(),hashlib.sha256(username.encode()).digest()) and hmac.compare_digest(
-                hashlib.sha256((auth.password or '').encode()).digest(),hashlib.sha256(password.encode()).digest())
-            if not matches:
-                with failure_lock: failures[ip].append(now)
-                return unauthorized()
-            with failure_lock: failures.pop(ip,None)
+        if request.path in PUBLIC_PATHS: return None
+        if not authenticated():
+            if request.path.startswith('/api/'):
+                return jsonify(error='Session expirée. Reconnectez-vous.',login=True),401
+            return redirect('/login?m=expire' if session.get('was_logged_in') else '/login')
         if request.method=='POST':
+            if request.path=='/logout':
+                if not same_origin(): return jsonify(error='Origine de la requête non autorisée.'),403
+                return None
             if request.headers.get('Origin')!=request.host_url.rstrip('/'):
                 return jsonify(error='Origine de la requête non autorisée.'),403
             if not request.is_json:
@@ -59,6 +91,35 @@ def create_app():
         response.headers['Referrer-Policy']='same-origin'
         if production: response.headers['Strict-Transport-Security']='max-age=31536000'
         return response
+
+    @app.get('/login')
+    def login_page():
+        if auth_required and not locked and session.get('auth')==fingerprint: return redirect('/')
+        if not auth_required: return redirect('/')
+        if locked and not request.args.get('m'): return redirect('/login?m=config')
+        return send_from_directory(server.ROOT/'public','login.html')
+
+    @app.post('/login')
+    def login():
+        ip=request.remote_addr
+        if locked: return redirect('/login?m=config',303)
+        if not same_origin(): return redirect('/login?m=origine',303)
+        if blocked(ip): return redirect('/login?m=bloque',303)
+        if not credentials_match(request.form.get('username','').strip(),request.form.get('password','')):
+            record_failure(ip)
+            time.sleep(0.4)  # ralentit les essais automatisés
+            return redirect('/login?m=identifiants',303)
+        with failure_lock: failures.pop(ip,None)
+        session.clear()
+        session.permanent=request.form.get('remember')=='1'
+        session['auth']=fingerprint; session['user']=username; session['was_logged_in']=True
+        return redirect('/',303)
+
+    @app.post('/logout')
+    def logout():
+        session.clear()
+        if request.is_json: return jsonify(ok=True,redirect='/login?m=deconnecte')
+        return redirect('/login?m=deconnecte',303)
 
     @app.get('/healthz')
     def health():
@@ -77,7 +138,11 @@ def create_app():
         return send_from_directory(server.ROOT/'public',name)
 
     @app.get('/api/state')
-    def state(): return jsonify(server.state())
+    def state():
+        payload=server.state()
+        payload['user']=session.get('user') or (username if auth_required else '')
+        payload['auth']=auth_required
+        return jsonify(payload)
 
     @app.post('/api/<action>')
     def action(action):

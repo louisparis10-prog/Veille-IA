@@ -10,6 +10,7 @@ from contextlib import contextmanager
 import translation
 import database
 import news_sources
+import relevance
 
 ROOT = Path(__file__).parent
 DB = Path(os.environ.get('VEILLE_DB', str(ROOT / 'veille.sqlite3')))
@@ -29,6 +30,9 @@ def init():
         translation.initialize(c)
         c.execute("INSERT INTO settings VALUES('interests',?) ON CONFLICT DO NOTHING", ('maintenance, production, qualité, automatisation, Copilot, Power BI',))
         for name,url in SOURCES: c.execute('INSERT INTO sources VALUES(?,?,?,?) ON CONFLICT(name) DO UPDATE SET url=excluded.url',(name,url,'Non synchronisé',None))
+        # Les sources retirées du catalogue disparaissent de la liste ; leurs articles restent en base.
+        for row in c.execute('SELECT name FROM sources').fetchall():
+            if row['name'] not in news_sources.BY_NAME: c.execute('DELETE FROM sources WHERE name=?',(row['name'],))
 def clean(s):
     import html
     return re.sub(r'\s+',' ',html.unescape(re.sub('<[^>]+>', ' ', s or ''))).strip()
@@ -61,13 +65,8 @@ def article_guide(title, details, source, category):
     words=len((details or title).split())
     return dict(key_points=points[:3],checks=checks,reading_minutes=max(1,round(words/180)),details_available=has_details)
 def classify(title, excerpt, interests=None):
-    t=(title+' '+excerpt).lower(); terms=[x.strip().lower() for x in (interests if interests is not None else get_setting('interests')).split(',') if x.strip()]
-    matches=[x for x in terms if x in t]
-    cat='IA & innovation'
-    for label, words in [('Données et décisionnel',['power bi','fabric','analytics','data']),('Automatisation',['agent','automation','automatisation']),('Copilot et productivité',['copilot','microsoft 365'])]:
-        if any(w in t for w in words): cat=label
-    score=min(95,30+15*len(matches)+ (15 if cat!='IA & innovation' else 0))
-    return dict(category=cat,summary=excerpt[:900] or 'Le flux ne fournit pas de résumé. Consulter la source.',score=score,importance=50,services=matches,opportunity='Piste à valider : évaluer un cas limité dans '+(', '.join(matches) if matches else 'votre activité')+'. Comparer le temps gagné, la qualité et les contraintes de données.',mode='Mots-clés',reason='Correspondances : '+(', '.join(matches) or 'aucune')+'. Score indicatif, non évalué par IA.')
+    result=relevance.assess(title,excerpt,interests if interests is not None else get_setting('interests'))
+    return dict(result,summary=excerpt[:900] or 'Le flux ne fournit pas de résumé. Consulter la source.',importance=50)
 class AIUnavailable(Exception):
     pass
 
@@ -159,6 +158,8 @@ class ArticleHTMLParser(HTMLParser):
 def _allowed_url(url,domain):
     parsed=urllib.parse.urlsplit(url)
     host=(parsed.hostname or '').lower(); allowed=(domain or '').lower().split('/')[0]
+    # « * » : presse spécialisée de tout site public (jamais Google Actualités lui-même).
+    if allowed=='*': return parsed.scheme in ('http','https') and bool(host) and not host.endswith('news.google.com')
     return parsed.scheme in ('http','https') and bool(allowed) and (host==allowed or host.endswith('.'+allowed))
 
 def _request_text(url,timeout=20,limit=2_000_000):
@@ -256,6 +257,7 @@ def sync():
 
 def collect():
     added=0
+    init()  # enregistre les sources ajoutées au catalogue depuis le dernier démarrage
     try:
         for name,url in SOURCES:
             try:
@@ -266,7 +268,7 @@ def collect():
                     if via_relay or not config.get('fallback'): raise
                     records=fetch_feed(config['fallback']); via_relay=True
                 records=records[:12]
-                candidates=[record for record in records if not via_relay or record[0].split(' - ')[0].strip().lower() not in ('le chat','midjourney','home','news','blog','qwen','try qwen','anthropic')]
+                candidates=[record for record in records if not relevance.is_noise(record[0],record[1]) and (not via_relay or record[0].split(' - ')[0].strip().lower() not in ('le chat','midjourney','home','news','blog','qwen','try qwen','anthropic'))]
                 if via_relay:
                     with ThreadPoolExecutor(max_workers=6) as pool:
                         resolved=[result for result in pool.map(lambda record:enrich_record(record,config,True),candidates[:10]) if result]
@@ -275,10 +277,13 @@ def collect():
                     usable=[result for result,fingerprint in zip(resolved,fingerprints) if counts[fingerprint]==1][:6]
                 else:
                     usable=[result for result in (enrich_record(record,config,False) for record in candidates) if result]
+                usable=[result for result in usable if not relevance.is_noise(result[0],result[1])]
+                press=config.get('press',False)
                 for title,link,date,excerpt in usable:
                     ident=hashlib.sha256(re.sub(r'\W+','',title.lower()).encode()).hexdigest()[:24]
                     analysis=analyze(title,excerpt)
-                    analysis['collection_mode']='Publication officielle retrouvée via Google Actualités' if via_relay else 'Flux officiel'
+                    if press: analysis['collection_mode']='Presse spécialisée retrouvée via Google Actualités' if via_relay else 'Flux de presse spécialisée'
+                    else: analysis['collection_mode']='Publication officielle retrouvée via Google Actualités' if via_relay else 'Flux officiel'
                     with conn() as c:
                         existing=c.execute('SELECT id FROM articles WHERE id=? OR url=?',(ident,link)).fetchone()
                         if existing:
@@ -335,43 +340,67 @@ def scheduler():
         except Exception: due=True
         if due: sync()
         time.sleep(60)
+MAX_ARTICLES=300  # articles récents envoyés à l'interface (favoris et articles liés à une idée toujours inclus)
+LEGACY_CATEGORIES={'Data & BI':'Données et décisionnel','Copilot & productivité':'Copilot et bureautique','Copilot et productivité':'Copilot et bureautique','IA & innovation':'IA et innovation','Automatisation':'Automatisation et agents'}
+
 def state():
     with conn() as c:
         c.execute('INSERT INTO activity VALUES(?) ON CONFLICT DO NOTHING',(datetime.now().date().isoformat(),))
-        articles=[dict(r) for r in c.execute('SELECT * FROM articles ORDER BY published DESC NULLS LAST')]
-        for a in articles:
+        interests=c.execute("SELECT value FROM settings WHERE key='interests'").fetchone()['value']
+        rows=[dict(r) for r in c.execute('SELECT * FROM articles ORDER BY published DESC NULLS LAST')]
+        items=[dict(r) for r in c.execute('SELECT * FROM items ORDER BY id DESC')]
+        linked={i['article_id'] for i in items if i.get('article_id')}
+        # Une seule requête pour toutes les traductions, au lieu de trois par article.
+        french={r['id']:r['french'] for r in c.execute('SELECT id,french FROM translations')}
+        def cached(text):
+            if not text or not text.strip(): return text
+            return french.get(translation.identity(text))
+        articles=[]; pending=False
+        for a in rows:
+            source=news_sources.BY_NAME.get(a['source']) if a['source'] else {}
+            if source is None or relevance.is_noise(a['title'],a['url']): continue  # source retirée ou page sans contenu
+            if len(articles)>=MAX_ARTICLES and not a['favorite'] and a['id'] not in linked: continue
             a.update(json.loads(a.pop('analysis')))
             original_title=a['title']
             original_summary=a['summary'] or ''
-            original_details=a['excerpt'][:1800]
+            original_details=(a.pop('excerpt') or '')[:1800]
             a['original_title']=original_title
-            a['original_excerpt']=a['excerpt']
-            title_fr=translation.cached(c,original_title)
-            summary_fr=translation.cached(c,original_summary)
-            details_fr=translation.cached(c,original_details)
+            title_fr=cached(original_title)
+            summary_fr=cached(original_summary)
+            details_fr=cached(original_details)
             a['translation_pending']=title_fr is None or summary_fr is None
             a['details_pending']=details_fr is None
-            a['title']=title_fr or original_title
+            pending=pending or a['translation_pending'] or a['details_pending']
+            a['title']=relevance.clean_title(title_fr or original_title,a['source'])
             a['summary']=summary_fr or original_summary or original_details or 'Aucun extrait n’a été fourni par cette source.'
             a['details']=details_fr or original_details or a['summary']
-            a['excerpt']=a['details']
-            a['category']={'Data & BI':'Données et décisionnel','Copilot & productivité':'Copilot et productivité','IA & innovation':'IA et innovation'}.get(a['category'],a['category'])
+            if a.get('mode')!='IA':
+                # Pertinence recalculée à chaque affichage sur l'original et sa traduction.
+                a.update(relevance.assess(original_title+' · '+(title_fr or ''),original_details+' '+(details_fr or ''),interests))
+            a['category']=LEGACY_CATEGORIES.get(a['category'],a['category'])
+            a['press']=bool(source.get('press'))
+            a['family']=source.get('family','')
             a.update(article_guide(a['title'],a['details'],a['source'],a['category']))
-            if not a['details_available']:
-                a['excerpt_label']='Extrait indisponible'
-            elif a['details_pending']:
-                a['excerpt_label']='Extrait original de la publication officielle'
-            else:
-                a['excerpt_label']='Extrait traduit de la publication officielle'
-        if any(a['translation_pending'] or a['details_pending'] for a in articles): translate_in_background()
-        items=[dict(r) for r in c.execute('SELECT * FROM items ORDER BY id DESC')]
+            origin='de l’article de presse' if a['press'] else 'de la publication officielle'
+            if not a['details_available']: a['excerpt_label']='Extrait indisponible'
+            elif a['details_pending']: a['excerpt_label']='Extrait original '+origin
+            else: a['excerpt_label']='Extrait traduit '+origin
+            a.pop('importance',None)
+            articles.append(a)
+        if pending: translate_in_background()
         for item in items:
             # Traduire les titres importés sans modifier les notes personnelles.
-            translated=translation.cached(c,item['title'])
+            translated=cached(item['title'])
             if translated: item['title']=translated
-        import ideas
-        paid_ai=bool(os.environ.get('OPENAI_API_KEY')) and os.environ.get('ALLOW_PAID_AI')=='true'
-        return dict(articles=articles,items=items,daily_ideas=ideas.read_daily(),sources=[dict(r,official=news_sources.BY_NAME.get(r['name'],{}).get('official',r['url'])) for r in c.execute('SELECT * FROM sources ORDER BY name')],interests=get_setting('interests'),ai=paid_ai,syncing=LOCK.locked(),translating=TRANSLATING.locked(),days=[r['day'] for r in c.execute('SELECT day FROM activity')])
+        stored={r['name']:dict(r) for r in c.execute('SELECT * FROM sources')}
+        sources=[]
+        for name,config in news_sources.BY_NAME.items():
+            row=stored.get(name) or {'name':name,'url':config['feed'],'status':'Non synchronisé · ajoutée au catalogue, collectée à la prochaine actualisation','checked':None}
+            sources.append(dict(row,official=config['official'],family=config['family']))
+        days=[r['day'] for r in c.execute('SELECT day FROM activity')]
+    import ideas
+    paid_ai=bool(os.environ.get('OPENAI_API_KEY')) and os.environ.get('ALLOW_PAID_AI')=='true'
+    return dict(articles=articles,items=items,daily_ideas=ideas.read_daily(),sources=sources,interests=interests,ai=paid_ai,syncing=LOCK.locked(),translating=TRANSLATING.locked(),days=days)
 def perform_action(path,b):
     if path=='/api/sync':
         threading.Thread(target=sync,daemon=True).start(); return 202, {'message':'Collecte lancée'}

@@ -19,11 +19,42 @@ class WebTests(unittest.TestCase):
     def tearDown(self):
         server.DB.unlink(); server.DB=self.previous; self.environment.stop()
     def test_private_pages_and_public_health(self):
-        self.assertEqual(self.client.get('/').status_code,401)
+        response=self.client.get('/')
+        self.assertEqual(response.status_code,302)
+        self.assertTrue(response.headers['Location'].endswith('/login'))
         self.assertEqual(self.client.get('/api/state').status_code,401)
+        self.assertNotIn('WWW-Authenticate',self.client.get('/api/state').headers)
         self.assertEqual(self.client.get('/healthz').status_code,200)
+        with self.client.get('/login') as response:
+            self.assertEqual(response.status_code,200)
+            self.assertIn('Connexion',response.get_data(as_text=True))
         with self.client.get('/',headers=self.headers) as response:
             self.assertEqual(response.status_code,200)
+    def test_login_page_session_and_logout(self):
+        wrong=self.client.post('/login',data={'username':'louis','password':'mauvais'})
+        self.assertEqual(wrong.status_code,303)
+        self.assertIn('m=identifiants',wrong.headers['Location'])
+        self.assertEqual(self.client.get('/api/state').status_code,401)
+        right=self.client.post('/login',data={'username':'louis','password':'test-password-123456','remember':'1'})
+        self.assertEqual(right.status_code,303)
+        self.assertTrue(right.headers['Location'].endswith('/'))
+        self.assertIn('HttpOnly',right.headers['Set-Cookie'])
+        state=self.client.get('/api/state')
+        self.assertEqual(state.status_code,200)
+        self.assertEqual(state.json['user'],'louis')
+        self.assertEqual(self.client.get('/login').status_code,302)
+        self.assertEqual(self.client.post('/logout',json={},headers={'Origin':'https://other.example'}).status_code,403)
+        self.assertEqual(self.client.post('/logout',json={},headers={'Origin':'http://localhost'}).status_code,200)
+        self.assertEqual(self.client.get('/api/state').status_code,401)
+    def test_login_from_another_site_is_refused(self):
+        response=self.client.post('/login',data={'username':'louis','password':'test-password-123456'},headers={'Origin':'https://other.example'})
+        self.assertIn('m=origine',response.headers['Location'])
+        self.assertEqual(self.client.get('/api/state').status_code,401)
+    def test_repeated_failures_are_blocked(self):
+        with patch('app.time.sleep'):
+            for _ in range(8): self.client.post('/login',data={'username':'louis','password':'faux'})
+            response=self.client.post('/login',data={'username':'louis','password':'test-password-123456'})
+        self.assertIn('m=bloque',response.headers['Location'])
     def test_cross_origin_post_is_blocked(self):
         response=self.client.post('/api/item',json={'title':'Action'},headers={**self.headers,'Origin':'https://other.example'})
         self.assertEqual(response.status_code,403)
@@ -48,8 +79,11 @@ class WebTests(unittest.TestCase):
         with patch.dict(os.environ,{'APP_ENV':'production','DATABASE_URL':'postgresql://unused','APP_PASSWORD':'court'}):
             with self.assertRaises(RuntimeError): create_app()
         with patch.dict(os.environ,{'APP_ENV':'production','DATABASE_URL':'postgresql://unused','APP_PASSWORD':''}):
-            open_client=create_app().test_client(); server.AUTO_TRANSLATE=False
-            self.assertEqual(open_client.get('/api/state').status_code,200)
+            # Sans mot de passe en production, l'application reste verrouillée.
+            locked=create_app().test_client(); server.AUTO_TRANSLATE=False
+            self.assertEqual(locked.get('/api/state').status_code,401)
+            self.assertIn('m=config',locked.get('/login').headers['Location'])
+            self.assertIn('m=config',locked.post('/login',data={'username':'louis','password':''}).headers['Location'])
     def test_invalid_stage_and_payload(self):
         self.assertEqual(self.client.post('/api/item',json={'title':'A','stage':'invalid'},headers=self.headers).status_code,400)
         self.assertEqual(self.client.post('/api/item',json=[],headers=self.headers).status_code,400)
