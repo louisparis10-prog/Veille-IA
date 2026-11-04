@@ -1,4 +1,4 @@
-﻿# Signal — Veille IA et digitalisation
+# Signal — Veille IA et digitalisation
 
 Application personnelle en français pour collecter les actualités officielles, repérer des opportunités et suivre un parcours **Idée → Test → Projet → Déployé**.
 
@@ -11,12 +11,16 @@ L'application web fonctionne sur Render et utilise PostgreSQL sur Neon. Le navig
 - Trois pistes quotidiennes préparées : deux applications et une création, issues de 60 fiches pédagogiques. Rotation sans répétition pendant 20 jours puis reprise ; historique conservé sur 30 jours.
 - « Comprendre / poser une question » prépare un texte clair à copier dans ChatGPT ou dans un outil approuvé par l’entreprise.
 - Accès géré par l'application elle-même (`auth.py`) : à la première ouverture, la page « Créer votre accès » fait choisir identifiant et mot de passe (10 caractères minimum). Seule une empreinte PBKDF2-SHA256 salée est enregistrée dans la base (table `settings`, clé `access`), jamais le mot de passe, ni dans le code ni sur Render. Ensuite : page de connexion, « Rester connecté 30 jours », déconnexion, blocage après 8 échecs par minute, changement d'identifiant ou de mot de passe dans Paramètres (les autres sessions sont alors déconnectées). Mot de passe oublié : `python manage.py reset-access`, puis recréer l'accès. `SECRET_KEY` est facultative.
-- 33 sources en trois familles :
-  - **Outils IA** : OpenAI, Microsoft 365, Copilot Studio, Power Platform, Power BI, Fabric, Google/Gemini, DeepMind, Anthropic, Mistral, Meta, AWS, NVIDIA, DeepSeek, Qwen, Hugging Face, IBM, Cohere, xAI, Perplexity, Adobe, Salesforce ;
+- Sources en cinq familles (liste complète dans `news_sources.py`) :
+  - **Outils IA** : OpenAI, Microsoft 365, Copilot Studio, Power Platform, Power BI, Fabric, Google/Gemini, DeepMind, Anthropic, Mistral, Meta, AWS, NVIDIA, DeepSeek, Qwen, Hugging Face, IBM, Cohere, xAI, Perplexity, Salesforce ;
+  - **Actualité IA** : The Verge, TechCrunch, recherches de presse sur les agents et assistants (anglais et français) ;
+  - **Création** : Google Labs (Veo, Flow), Adobe Firefly, Runway, Midjourney, Luma AI, ElevenLabs, Stability AI, Kling et une recherche presse sur les outils de création ;
   - **Industrie** : Siemens (IA industrielle), ABB (process et papier), L'Usine Digitale ;
   - **Papeterie** : Valmet, ANDRITZ, Voith Paper, Papnews, Pulp & Paper Canada, et deux recherches de presse « IA et papeterie » (anglais et français).
   Flux officiels, ou relais Google Actualités limités au domaine officiel ou à une recherche ciblée ; couverture non exhaustive, sans API payante.
-- Pertinence métier (`relevance.py`) : thèmes Papeterie et process, Industrie et maintenance, Copilot et bureautique, Données et décisionnel, Automatisation et agents ; outils cités (ChatGPT, Copilot, Claude, Gemini, Power BI…) ; badge « Nouveauté » pour les annonces de fonctionnalités ; pages d'auteur, de recrutement ou d'événement écartées.
+- Pertinence (`relevance.py`) : thèmes Création, Assistants et modèles, Papeterie et process, Industrie et maintenance, Copilot et bureautique, Données, Automatisation et agents ; outils cités ; badge « Nouveauté » ; badge **Incontournable** pour les lancements majeurs (nouvel agent, modèle ou fonctionnalité de ChatGPT, Claude, Gemini, Copilot, Mistral, Grok, Runway, Veo…) mis en tête dans « À ne pas manquer » ; pages d'auteur, de recrutement ou d'événement écartées.
+- Onglet **Les IA** (`observatory.py`) : pour chaque grande IA, activité sur 30 jours, derniers modèles cités, dernières annonces et liens officiels, recalculés automatiquement à chaque collecte.
+- Collecte automatique dès que la dernière date de plus de 6 heures (déclenchée à l'ouverture), badge des nouveautés depuis la dernière visite, « Studio créatif », bouton « Partager » qui copie titre et lien.
 - Lecture de 12 entrées récentes par source et conservation des publications qui fournissent un extrait fiable, avec historique et dédoublonnage par URL ou titre.
 - Titres et extraits traduits en français et conservés en base ; originaux préservés.
 - Chaque actualité contient un extrait réellement récupéré sur la publication officielle, traduit en français, puis une fiche de lecture : informations à retenir, intérêt possible, vérifications et lien direct. Les résultats sans extrait fiable ne sont plus conservés.

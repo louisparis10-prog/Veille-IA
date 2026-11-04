@@ -17,6 +17,7 @@ CATALOG=[
     ('Microsoft Fabric','https://blog.fabric.microsoft.com/','https://blog.fabric.microsoft.com/en-us/blog/feed/','blog.fabric.microsoft.com','','en','Outils IA'),
     ('Microsoft IA','https://blogs.microsoft.com/','https://blogs.microsoft.com/feed/','blogs.microsoft.com','','en','Outils IA'),
     ('Google IA et Gemini','https://blog.google/innovation-and-ai/technology/ai/','https://blog.google/innovation-and-ai/technology/ai/rss/','blog.google','','en','Outils IA'),
+    ('Google Gemini','https://blog.google/products/gemini/','https://blog.google/products/gemini/rss/','blog.google','','en','Outils IA'),
     ('Google DeepMind','https://deepmind.google/blog/','','deepmind.google','','en','Outils IA'),
     ('Anthropic / Claude','https://www.anthropic.com/news','','anthropic.com','','en','Outils IA'),
     ('Mistral AI','https://mistral.ai/news/','','mistral.ai/news','','en','Outils IA'),
@@ -30,8 +31,22 @@ CATALOG=[
     ('Cohere','https://cohere.com/blog','','cohere.com/blog','','en','Outils IA'),
     ('xAI / Grok','https://x.ai/news','','x.ai/news','','en','Outils IA'),
     ('Perplexity','https://www.perplexity.ai/hub/blog','','perplexity.ai/hub/blog','','en','Outils IA'),
-    ('Adobe / Firefly','https://blog.adobe.com/','','blog.adobe.com','','en','Outils IA'),
     ('Salesforce IA','https://www.salesforce.com/blog/category/artificial-intelligence/','','salesforce.com/blog','','en','Outils IA'),
+    # Actualité IA : ne manquer aucun lancement d'agent, de modèle ou de fonctionnalité
+    ('The Verge · IA','https://www.theverge.com/ai-artificial-intelligence','https://www.theverge.com/rss/ai-artificial-intelligence/index.xml','theverge.com','','en','Actualité IA'),
+    ('TechCrunch · IA','https://techcrunch.com/category/artificial-intelligence/','https://techcrunch.com/category/artificial-intelligence/feed/','techcrunch.com','','en','Actualité IA'),
+    ('Agents et assistants · presse','https://news.google.com/','','*','(ChatGPT OR Claude OR Gemini OR Copilot OR Grok OR "Le Chat" OR Perplexity) (agent OR agents OR "new feature" OR launches OR "rolls out" OR "now available" OR "new model") when:7d','en','Actualité IA'),
+    ('IA grand public · presse FR','https://news.google.com/','','*','(ChatGPT OR Claude OR Gemini OR Copilot OR Mistral OR "Le Chat") (nouveau OR nouvelle OR lance OR déploie OR disponible OR agent) when:7d','fr','Actualité IA'),
+    # Création : vidéo, image, voix et musique
+    ('Google Labs','https://blog.google/technology/google-labs/','https://blog.google/technology/google-labs/rss/','blog.google','','en','Création'),
+    ('Adobe / Firefly','https://blog.adobe.com/','','blog.adobe.com','site:blog.adobe.com (Firefly OR "generative AI" OR "AI video" OR "AI image")','en','Création'),
+    ('Runway','https://runwayml.com/news','','runwayml.com','site:runwayml.com (news OR introducing OR launch OR Gen)','en','Création'),
+    ('Midjourney','https://updates.midjourney.com/','','updates.midjourney.com','','en','Création'),
+    ('Luma AI','https://lumalabs.ai/news','','lumalabs.ai','site:lumalabs.ai (Ray OR "Dream Machine" OR launch OR introducing OR news)','en','Création'),
+    ('ElevenLabs','https://elevenlabs.io/blog/','','elevenlabs.io/blog','','en','Création'),
+    ('Stability AI','https://stability.ai/news','','stability.ai/news','','en','Création'),
+    ('Kling AI · presse','https://klingai.com/','','*','"Kling AI" (launch OR launches OR model OR new OR released) when:30d','en','Création'),
+    ('Création IA · presse','https://news.google.com/','','*','("AI video generator" OR "video generation model" OR "image generation model" OR "AI image generator" OR "AI music generator" OR "text-to-video" OR "AI video model") (launch OR launches OR released OR introduces OR unveils) when:14d','en','Création'),
     # Industrie et automatisation
     ('Siemens IA industrielle','https://www.siemens.com/global/en/company/topic-areas/artificial-intelligence.html','','siemens.com','site:siemens.com ("Industrial Copilot" OR "industrial AI" OR "artificial intelligence") -career -jobs','en','Industrie'),
     ('ABB process et papier','https://new.abb.com/pulp-paper','','new.abb.com','site:new.abb.com (AI OR "artificial intelligence" OR digital OR automation) (pulp OR paper OR "process industries")','en','Industrie'),
@@ -49,5 +64,6 @@ BY_NAME={}
 for name,official,feed,domain,query,lang,family in CATALOG:
     fallback=relay(query or 'site:'+domain,lang)
     BY_NAME[name]={'official':official,'feed':feed or fallback,'relay':not bool(feed),'fallback':fallback,
-                   'domain':domain.split('/')[0],'family':family,'press':domain=='*' or family!='Outils IA'}
+                   'domain':domain.split('/')[0],'family':family,'press':domain=='*' or family not in ('Outils IA','Création')}
+FAMILIES=['Outils IA','Actualité IA','Création','Industrie','Papeterie']
 SOURCES=[(name,config['feed']) for name,config in BY_NAME.items()]

@@ -11,6 +11,7 @@ import translation
 import database
 import news_sources
 import relevance
+import observatory
 
 ROOT = Path(__file__).parent
 DB = Path(os.environ.get('VEILLE_DB', str(ROOT / 'veille.sqlite3')))
@@ -285,9 +286,11 @@ def collect():
                     if press: analysis['collection_mode']='Presse spécialisée retrouvée via Google Actualités' if via_relay else 'Flux de presse spécialisée'
                     else: analysis['collection_mode']='Publication officielle retrouvée via Google Actualités' if via_relay else 'Flux officiel'
                     with conn() as c:
-                        existing=c.execute('SELECT id FROM articles WHERE id=? OR url=?',(ident,link)).fetchone()
+                        existing=c.execute('SELECT id,source FROM articles WHERE id=? OR url=?',(ident,link)).fetchone()
                         if existing:
-                            c.execute('UPDATE articles SET title=?,url=?,source=?,published=?,excerpt=?,analysis=? WHERE id=?',(title,link,name,date,excerpt,json.dumps(analysis,ensure_ascii=False),existing['id']))
+                            # Un article garde sa première source (souvent officielle) ; seule celle-ci le met à jour.
+                            if existing['source']==name:
+                                c.execute('UPDATE articles SET title=?,url=?,published=?,excerpt=?,analysis=? WHERE id=?',(title,link,date,excerpt,json.dumps(analysis,ensure_ascii=False),existing['id']))
                         else:
                             cursor=c.execute('INSERT INTO articles(id,title,url,source,published,excerpt,analysis) VALUES(?,?,?,?,?,?,?) ON CONFLICT DO NOTHING',(ident,title,link,name,date,excerpt,json.dumps(analysis,ensure_ascii=False))); added+=cursor.rowcount
                 status='OK · '+str(len(usable))+' articles avec extrait · '+('pages officielles via Google Actualités' if via_relay else 'flux officiel')
@@ -376,7 +379,8 @@ def state():
             a['details']=details_fr or original_details or a['summary']
             if a.get('mode')!='IA':
                 # Pertinence recalculée à chaque affichage sur l'original et sa traduction.
-                a.update(relevance.assess(original_title+' · '+(title_fr or ''),original_details+' '+(details_fr or ''),interests))
+                a.update(relevance.assess(original_title+' · '+(title_fr or ''),original_details+' '+(details_fr or ''),interests,a['source'] or ''))
+            a['assistants']=observatory.mentions(original_title+' '+(title_fr or '')+' '+original_details[:700])
             a['category']=LEGACY_CATEGORIES.get(a['category'],a['category'])
             a['press']=bool(source.get('press'))
             a['family']=source.get('family','')
@@ -400,7 +404,22 @@ def state():
         days=[r['day'] for r in c.execute('SELECT day FROM activity')]
     import ideas
     paid_ai=bool(os.environ.get('OPENAI_API_KEY')) and os.environ.get('ALLOW_PAID_AI')=='true'
-    return dict(articles=articles,items=items,daily_ideas=ideas.read_daily(),sources=sources,interests=interests,ai=paid_ai,syncing=LOCK.locked(),translating=TRANSLATING.locked(),days=days)
+    checked=[s['checked'] for s in sources if s.get('checked')]
+    return dict(articles=articles,items=items,daily_ideas=ideas.read_daily(),sources=sources,families=news_sources.FAMILIES,
+                observatory=observatory.build(articles),last_sync=max(checked) if checked else None,
+                interests=interests,ai=paid_ai,syncing=LOCK.locked(),translating=TRANSLATING.locked(),days=days)
+
+# Collecte automatique : relancée dès qu'un visiteur ouvre l'application et que la dernière date de plus de 6 heures.
+SYNC_EVERY=6*3600
+LAST_AUTO_SYNC=[0.0]
+def sync_if_stale(last_sync):
+    if not AUTO_TRANSLATE or LOCK.locked() or time.time()-LAST_AUTO_SYNC[0]<900: return False
+    try: age=time.time()-datetime.fromisoformat(last_sync).timestamp() if last_sync else None
+    except Exception: age=None
+    if age is not None and age<SYNC_EVERY: return False
+    LAST_AUTO_SYNC[0]=time.time()
+    threading.Thread(target=sync,daemon=True).start()
+    return True
 def perform_action(path,b):
     if path=='/api/sync':
         threading.Thread(target=sync,daemon=True).start(); return 202, {'message':'Collecte lancée'}

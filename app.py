@@ -180,6 +180,7 @@ def create_app():
     @app.get('/api/state')
     def state():
         payload=server.state()
+        if server.sync_if_stale(payload.get('last_sync')): payload['syncing']=True
         payload['user']=session.get('user','')
         payload['auth']=True
         return jsonify(payload)

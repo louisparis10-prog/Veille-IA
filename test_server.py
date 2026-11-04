@@ -107,10 +107,40 @@ class Tests(unittest.TestCase):
     def test_noise_and_removed_sources_are_hidden_from_state(self):
         import json
         with server.conn() as c:
-            for ident,title,url,source in [('a','Real Copilot news','https://example.com/a','OpenAI'),('b','Jane Doe, Author - Salesforce','https://example.com/b','Salesforce IA'),('c','Voices news','https://example.com/c','ElevenLabs')]:
+            for ident,title,url,source in [('a','Real Copilot news','https://example.com/a','OpenAI'),('b','Jane Doe, Author - Salesforce','https://example.com/b','Salesforce IA'),('c','Voices news','https://example.com/c','Ancienne source retirée')]:
                 c.execute('INSERT INTO articles(id,title,url,source,excerpt,analysis) VALUES(?,?,?,?,?,?)',(ident,title,url,source,'Excerpt text',json.dumps(server.classify(title,'Excerpt text'))))
         self.assertEqual([a['id'] for a in server.state()['articles']],['a'])
         self.assertNotIn('excerpt',server.state()['articles'][0])
+    def test_major_launches_are_must_read(self):
+        import relevance
+        self.assertTrue(relevance.must_read('OpenAI introduces a new ChatGPT agent for shopping','',''))
+        self.assertTrue(relevance.must_read('Anthropic launches Claude Opus 5 model','','Anthropic / Claude'))
+        self.assertFalse(relevance.must_read('Why the history of chatbots matters','',''))
+        launch=relevance.assess('OpenAI introduces a new ChatGPT agent for shopping','ChatGPT can now buy for you.','')
+        self.assertTrue(launch['must_read'])
+        self.assertGreater(launch['score'],relevance.assess('Why the history of chatbots matters','A long essay.','')['score']+25)
+    def test_creative_tools_are_detected(self):
+        import relevance
+        video=relevance.assess('Runway releases a new video generation model','Generate cinematic video clips from text prompts.','')
+        self.assertEqual(video['category'],'Création (vidéo, image, audio)')
+        self.assertTrue(video['creative'])
+        self.assertIn('Runway',video['tools'])
+    def test_observatory_tracks_assistants_and_models(self):
+        import observatory
+        from datetime import datetime, timezone
+        self.assertIn('claude',observatory.mentions('Anthropic launches Claude Opus 5'))
+        self.assertIn('chatgpt',observatory.mentions('New ChatGPT agent'))
+        self.assertEqual(observatory.mentions('Valmet paper machine'),[])
+        now=datetime(2026,11,1,tzinfo=timezone.utc)
+        articles=[dict(id=str(i),title='t',url='https://x/'+str(i),published='2026-10-2'+str(i)+'T10:00:00+00:00',source='Anthropic / Claude',
+                       original_title='Anthropic launches Claude Opus 5',assistants=['claude'],must_read=i==0) for i in range(3)]
+        board={o['id']:o for o in observatory.build(articles,now)}
+        self.assertEqual(board['claude']['count30'],3)
+        self.assertEqual(board['claude']['status'],'Actif')
+        self.assertEqual(board['claude']['must_read'],1)
+        self.assertEqual(board['claude']['models'][0]['name'],'Claude Opus 5')
+        self.assertEqual(board['gemini']['count30'],0)
+        self.assertEqual(observatory.build(articles,now)[0]['id'],'claude')
     def test_google_news_resolution_rejects_an_unofficial_domain(self):
         html='<div data-n-a-id="abc" data-n-a-ts="123" data-n-a-sg="sig"></div>'
         response=")]}'\n[[\"wrb.fr\",\"Fbv4je\",\"[\\\"garturlres\\\",\\\"https://evil.example/article\\\",1]\",null]]"
