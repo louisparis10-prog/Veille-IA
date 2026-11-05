@@ -62,9 +62,13 @@ def populate(connect, texts):
     with connect() as c:
         known = {row['id'] for row in c.execute('SELECT id FROM translations')}
     pending = [t for t in texts if identity(t) not in known]
+    errors = {}
     def worker(text):
         try: return text, translate_public(text)
-        except Exception: return text, None
+        except Exception as error:
+            reason = type(error).__name__ + ' ' + str(getattr(error, 'code', '') or '')
+            errors[reason] = errors.get(reason, 0) + 1
+            return text, None
     saved = 0
     def save(batch):
         # Écritures regroupées dans une seule connexion : pas de verrou concurrent sur la base.
@@ -80,4 +84,5 @@ def populate(connect, texts):
     for start in range(0, len(pending), 30):
         with ThreadPoolExecutor(max_workers=3) as pool:
             save([(text, french) for text, french in pool.map(worker,pending[start:start+30]) if french])
+        print('Traduction : %d/%d enregistrées, échecs %s' % (saved, len(pending), errors or 'aucun'), flush=True)
     return {'translated':saved,'pending':len(pending)-saved}
