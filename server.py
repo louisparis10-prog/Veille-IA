@@ -30,6 +30,11 @@ def init():
         CREATE TABLE IF NOT EXISTS activity(day TEXT PRIMARY KEY);''')
         translation.initialize(c)
         c.execute("INSERT INTO settings VALUES('interests',?) ON CONFLICT DO NOTHING", ('maintenance, production, qualité, automatisation, Copilot, Power BI',))
+    register_sources()
+def register_sources():
+    """Aligne la table sources sur le catalogue, sans instruction CREATE : en ligne, le rôle
+    Neon de l'application n'a pas le droit de créer des objets dans le schéma public."""
+    with conn() as c:
         for name,url in SOURCES: c.execute('INSERT INTO sources VALUES(?,?,?,?) ON CONFLICT(name) DO UPDATE SET url=excluded.url',(name,url,'Non synchronisé',None))
         # Les sources retirées du catalogue disparaissent de la liste ; leurs articles restent en base.
         for row in c.execute('SELECT name FROM sources').fetchall():
@@ -258,7 +263,7 @@ def sync():
 
 def collect():
     added=0
-    init()  # enregistre les sources ajoutées au catalogue depuis le dernier démarrage
+    register_sources()  # enregistre les sources ajoutées au catalogue depuis le dernier démarrage
     try:
         for name,url in SOURCES:
             try:
@@ -343,6 +348,13 @@ def scheduler():
         except Exception: due=True
         if due: sync()
         time.sleep(60)
+import functools
+@functools.lru_cache(maxsize=4096)
+def _assess_cached(title,text,interests,source): return json.dumps(relevance.assess(title,text,interests,source))
+def _assess(title,text,interests,source): return json.loads(_assess_cached(title,text,interests,source))  # copie indépendante
+@functools.lru_cache(maxsize=4096)
+def _mentions_cached(text): return tuple(observatory.mentions(text))
+def _mentions(text): return list(_mentions_cached(text))
 MAX_ARTICLES=300  # articles récents envoyés à l'interface (favoris et articles liés à une idée toujours inclus)
 LEGACY_CATEGORIES={'Data & BI':'Données et décisionnel','Copilot & productivité':'Copilot et bureautique','Copilot et productivité':'Copilot et bureautique','IA & innovation':'IA et innovation','Automatisation':'Automatisation et agents'}
 
@@ -350,20 +362,35 @@ def state():
     with conn() as c:
         c.execute('INSERT INTO activity VALUES(?) ON CONFLICT DO NOTHING',(datetime.now().date().isoformat(),))
         interests=c.execute("SELECT value FROM settings WHERE key='interests'").fetchone()['value']
-        rows=[dict(r) for r in c.execute('SELECT * FROM articles ORDER BY published DESC NULLS LAST')]
         items=[dict(r) for r in c.execute('SELECT * FROM items ORDER BY id DESC')]
         linked={i['article_id'] for i in items if i.get('article_id')}
-        # Une seule requête pour toutes les traductions, au lieu de trois par article.
-        french={r['id']:r['french'] for r in c.execute('SELECT id,french FROM translations')}
+        # Seuls les articles récents (plus favoris et articles liés) sont lus : la base garde tout l'historique.
+        rows=[dict(r) for r in c.execute('SELECT * FROM articles ORDER BY published DESC NULLS LAST LIMIT ?',(MAX_ARTICLES*2,))]
+        seen={r['id'] for r in rows}
+        extra=[dict(r) for r in c.execute('SELECT * FROM articles WHERE favorite=1')]
+        if linked: extra+=[dict(r) for r in c.execute('SELECT * FROM articles WHERE id IN ('+','.join('?'*len(linked))+')',tuple(linked))]
+        for r in extra:
+            if r['id'] not in seen: seen.add(r['id']); rows.append(r)
+        kept=[]
+        for a in rows:
+            source=news_sources.BY_NAME.get(a['source']) if a['source'] else {}
+            if source is None or relevance.is_noise(a['title'],a['url']): continue  # source retirée ou page sans contenu
+            if len(kept)>=MAX_ARTICLES and not a['favorite'] and a['id'] not in linked: continue
+            a.update(json.loads(a.pop('analysis')))
+            kept.append((a,source))
+        # Une seule requête pour les traductions utiles, au lieu de toute la table.
+        wanted={translation.identity(t) for a,_ in kept for t in (a['title'],a['summary'] or '',(a.get('excerpt') or '')[:1800]) if t and t.strip()}
+        wanted|={translation.identity(i['title']) for i in items if i.get('title') and i['title'].strip()}
+        french={}
+        wanted=list(wanted)
+        for start in range(0,len(wanted),500):
+            part=wanted[start:start+500]
+            french.update({r['id']:r['french'] for r in c.execute('SELECT id,french FROM translations WHERE id IN ('+','.join('?'*len(part))+')',tuple(part))})
         def cached(text):
             if not text or not text.strip(): return text
             return french.get(translation.identity(text))
         articles=[]; pending=False
-        for a in rows:
-            source=news_sources.BY_NAME.get(a['source']) if a['source'] else {}
-            if source is None or relevance.is_noise(a['title'],a['url']): continue  # source retirée ou page sans contenu
-            if len(articles)>=MAX_ARTICLES and not a['favorite'] and a['id'] not in linked: continue
-            a.update(json.loads(a.pop('analysis')))
+        for a,source in kept:
             original_title=a['title']
             original_summary=a['summary'] or ''
             original_details=(a.pop('excerpt') or '')[:1800]
@@ -378,9 +405,9 @@ def state():
             a['summary']=summary_fr or original_summary or original_details or 'Aucun extrait n’a été fourni par cette source.'
             a['details']=details_fr or original_details or a['summary']
             if a.get('mode')!='IA':
-                # Pertinence recalculée à chaque affichage sur l'original et sa traduction.
-                a.update(relevance.assess(original_title+' · '+(title_fr or ''),original_details+' '+(details_fr or ''),interests,a['source'] or ''))
-            a['assistants']=observatory.mentions(original_title+' '+(title_fr or '')+' '+original_details[:700])
+                # Pertinence recalculée sur l'original et sa traduction, mise en cache tant que rien ne change.
+                a.update(_assess(original_title+' · '+(title_fr or ''),original_details+' '+(details_fr or ''),interests,a['source'] or ''))
+            a['assistants']=_mentions(original_title+' '+(title_fr or '')+' '+original_details[:700])
             a['category']=LEGACY_CATEGORIES.get(a['category'],a['category'])
             a['press']=bool(source.get('press'))
             a['family']=source.get('family','')
