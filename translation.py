@@ -58,21 +58,26 @@ def translate_public(text):
 
 def populate(connect, texts):
     texts = list(dict.fromkeys(t for t in texts if t and t.strip()))
+    # Une seule lecture des identifiants déjà traduits (au lieu d'une requête par texte).
     with connect() as c:
-        pending = [t for t in texts if cached(c,t) is None]
+        known = {row['id'] for row in c.execute('SELECT id FROM translations')}
+    pending = [t for t in texts if identity(t) not in known]
     def worker(text):
         try: return text, translate_public(text)
         except Exception: return text, None
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        results = [(text, french) for text, french in pool.map(worker,pending) if french]
-    # Écritures regroupées dans une seule connexion : pas de verrou concurrent sur la base.
     saved = 0
-    for start in range(0, len(results), 50):
+    def save(batch):
+        # Écritures regroupées dans une seule connexion : pas de verrou concurrent sur la base.
+        nonlocal saved
         try:
             with connect() as c:
-                for text, french in results[start:start+50]:
+                for text, french in batch:
                     c.execute('INSERT INTO translations VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET original=excluded.original, french=excluded.french',(identity(text),text,french))
-            saved += len(results[start:start+50])
+            saved += len(batch)
         except Exception:
             pass
+    # Enregistrement par lots de 30 : les traductions apparaissent au fil de l'eau.
+    for start in range(0, len(pending), 30):
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            save([(text, french) for text, french in pool.map(worker,pending[start:start+30]) if french])
     return {'translated':saved,'pending':len(pending)-saved}
