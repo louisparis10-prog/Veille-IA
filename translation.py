@@ -3,6 +3,7 @@ import hashlib
 import json
 import re
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
@@ -34,24 +35,42 @@ def chunks(text, size=CHUNK):
     if current: parts.append(current)
     return parts
 
+class RateLimited(Exception):
+    """Tous les points d'accès refusent temporairement (HTTP 429)."""
+
+# Points d'accès sans clé, sans garantie de disponibilité ; le second sert de secours.
+ENDPOINTS = [
+    ('https://translate.googleapis.com/translate_a/single?' + urllib.parse.urlencode({'client': 'gtx', 'sl': 'auto', 'tl': 'fr', 'dt': 't'}),
+     lambda result: ''.join(part[0] for part in result[0] if part and part[0])),
+    ('https://clients5.google.com/translate_a/t?' + urllib.parse.urlencode({'client': 'dict-chrome-ex', 'sl': 'auto', 'tl': 'fr'}),
+     lambda result: ''.join((item[0] if isinstance(item, list) else item) for item in result)),
+]
+COOLDOWN = 1800  # pause d'un point d'accès après un refus « trop de requêtes »
+BLOCKED_UNTIL = {}
+
 def translate_chunk(text):
-    # Ce point d’accès sans clé n’a pas de garantie de disponibilité.
-    url = 'https://translate.googleapis.com/translate_a/single?' + urllib.parse.urlencode(
-        {'client': 'gtx', 'sl': 'auto', 'tl': 'fr', 'dt': 't'})
     data = urllib.parse.urlencode({'q': text}).encode('utf-8')
-    request = urllib.request.Request(url, data=data, headers={'User-Agent': 'Signal/1.0'})
     last = None
-    for attempt in range(3):
-        try:
-            with urllib.request.urlopen(request, timeout=25) as response:
-                result = json.load(response)
-            translated = ''.join(part[0] for part in result[0] if part and part[0])
-            if not translated.strip(): raise ValueError('Traduction vide')
-            return translated
-        except Exception as error:
-            last = error
-            time.sleep(1.5 * (attempt + 1))
-    raise last
+    for url, parse in ENDPOINTS:
+        if BLOCKED_UNTIL.get(url, 0) > time.time(): continue
+        for attempt in range(2):
+            try:
+                request = urllib.request.Request(url, data=data, headers={'User-Agent': 'Signal/1.0'})
+                with urllib.request.urlopen(request, timeout=25) as response:
+                    translated = parse(json.load(response))
+                if not translated.strip(): raise ValueError('Traduction vide')
+                return translated
+            except urllib.error.HTTPError as error:
+                last = error
+                if error.code == 429:
+                    BLOCKED_UNTIL[url] = time.time() + COOLDOWN  # ne pas insister : passer au secours
+                    break
+                time.sleep(1.5)
+            except Exception as error:
+                last = error
+                time.sleep(1.5)
+    if all(BLOCKED_UNTIL.get(url, 0) > time.time() for url, _ in ENDPOINTS): raise RateLimited()
+    raise last or RuntimeError('Traduction indisponible')
 
 def translate_public(text):
     return ' '.join(translate_chunk(part) for part in chunks(text))
@@ -84,5 +103,8 @@ def populate(connect, texts):
     for start in range(0, len(pending), 30):
         with ThreadPoolExecutor(max_workers=3) as pool:
             save([(text, french) for text, french in pool.map(worker,pending[start:start+30]) if french])
+        if errors.get('RateLimited ', 0):
+            print('Traduction en pause 30 min : service saturé (%d/%d enregistrées)' % (saved, len(pending)), flush=True)
+            break
         print('Traduction : %d/%d enregistrées, échecs %s' % (saved, len(pending), errors or 'aucun'), flush=True)
     return {'translated':saved,'pending':len(pending)-saved}
