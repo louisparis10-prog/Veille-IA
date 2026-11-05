@@ -210,7 +210,11 @@ def create_app():
         if isinstance(error,(ValueError,KeyError,TypeError)):
             return jsonify(error='Vérifiez les champs de votre demande.'),400
         # Ne pas exposer de mot de passe, de chaîne Neon ou de détails SQL.
-        app.logger.error('Requête interrompue : %s',type(error).__name__)
+        import traceback
+        frame=traceback.extract_tb(error.__traceback__)[-1] if error.__traceback__ else None
+        where='%s:%s %s'%(os.path.basename(frame.filename),frame.lineno,frame.name) if frame else '?'
+        message=str(error)[:160] if isinstance(error,(AttributeError,NameError,IndexError)) else ''
+        app.logger.error('Requête interrompue : %s à %s %s',type(error).__name__,where,message)
         return jsonify(error='Service momentanément indisponible. Réessayez dans un instant.'),503
     return app
 
