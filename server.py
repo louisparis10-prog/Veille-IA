@@ -401,7 +401,7 @@ def state():
             a['translation_pending']=title_fr is None or summary_fr is None
             a['details_pending']=details_fr is None
             pending=pending or a['translation_pending'] or a['details_pending']
-            a['title']=relevance.clean_title(title_fr or original_title,a['source'])
+            a['title']=relevance.clean_title(title_fr or original_title,a['source'],bool(source.get('press')) and bool(source.get('relay')))
             a['summary']=summary_fr or original_summary or original_details or 'Aucun extrait n’a été fourni par cette source.'
             a['details']=details_fr or original_details or a['summary']
             if a.get('mode')!='IA':

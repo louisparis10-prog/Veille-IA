@@ -104,6 +104,7 @@ class Tests(unittest.TestCase):
         self.assertEqual(relevance.clean_title('Mistral Large 4 est en poids ouvert - mistral.ai','Mistral AI'),'Mistral Large 4 est en poids ouvert')
         self.assertEqual(relevance.clean_title('Double rappel : la mémoire Agentforce - Salesforce','Salesforce IA'),'Double rappel : la mémoire Agentforce')
         self.assertEqual(relevance.clean_title('Avant - après : un cas concret','OpenAI'),'Avant - après : un cas concret')
+        self.assertEqual(relevance.clean_title('ChatGPT lance Images 2.6 pour les GIF - KultureGeek','IA grand public · presse FR',True),'ChatGPT lance Images 2.6 pour les GIF')
     def test_noise_and_removed_sources_are_hidden_from_state(self):
         import json
         with server.conn() as c:

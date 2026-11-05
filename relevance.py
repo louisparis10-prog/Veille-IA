@@ -70,9 +70,13 @@ def is_noise(title,url=''):
     """Pages d'auteur, de recrutement ou de catégorie : aucune information utile."""
     return bool(NOISE_TITLE.search(title or '') or NOISE_URL.search(url or ''))
 
-def clean_title(title,source=''):
+def clean_title(title,source='',press=False):
     """Retirer le suffixe « - Éditeur » ajouté par Google Actualités ou les blogs."""
     title=(title or '').strip()
+    if press:
+        # Recherche presse : Google Actualités ajoute toujours le nom du journal en fin de titre.
+        match=re.match(r'^(.{15,})\s+[-–|]\s+([^-–|]{2,70})$',title)
+        if match: return match.group(1).strip()
     words={w for w in re.findall(r'\w+',(source or '').lower()) if len(w)>=3}
     for _ in range(2):
         match=re.match(r'^(.{15,}?)\s+[-–|]\s+([^-–|]{2,70})$',title)
