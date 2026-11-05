@@ -116,6 +116,7 @@ class Tests(unittest.TestCase):
         self.assertTrue(relevance.must_read('OpenAI introduces a new ChatGPT agent for shopping','',''))
         self.assertTrue(relevance.must_read('Anthropic launches Claude Opus 5 model','','Anthropic / Claude'))
         self.assertFalse(relevance.must_read('Why the history of chatbots matters','',''))
+        self.assertFalse(relevance.must_read('ElevenLabs Renews Security Certifications, Adds FedRAMP','','ElevenLabs'))
         launch=relevance.assess('OpenAI introduces a new ChatGPT agent for shopping','ChatGPT can now buy for you.','')
         self.assertTrue(launch['must_read'])
         self.assertGreater(launch['score'],relevance.assess('Why the history of chatbots matters','A long essay.','')['score']+25)

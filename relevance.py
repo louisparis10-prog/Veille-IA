@@ -58,8 +58,10 @@ LAUNCH=_pattern(['introducing','introduces','launch*','unveil*','announc*','now 
 WHAT=_pattern(['agent*','model*','feature*','mode','app','apps','tool*','assistant*','browser','API','voice','video*','image*','research','memory','canvas','tasks','skills','connector*','integration*','plugin*','modèle*','fonctionnalit*','outil*','application*','navigateur','vidéo*','version'])
 MAJOR_SOURCES={'OpenAI','Anthropic / Claude','Google IA et Gemini','Google Gemini','Google DeepMind','Google Labs','Microsoft 365','Microsoft Copilot Studio','Mistral AI','Meta IA','xAI / Grok','Perplexity','DeepSeek','Alibaba / Qwen','Runway','Midjourney','ElevenLabs','Luma AI'}
 
+# Annonces d'entreprise ou de conformité : utiles, mais pas des nouveautés à essayer.
+NOT_MUST=_pattern(['certification*','certified','FedRAMP','GovCloud','compliance','SOC 2','ISO 27001','program','programme','partner network','partnership','partenariat','capital','funding','raises','levée de fonds','valuation','valorisation','insurance','assurance','acquire*','acquisition','rachète','lawsuit','procès'])
 def must_read(title,text,source=''):
-    if LOW_VALUE.search(title or '') or OFF_TOPIC.search(title or ''): return False
+    if LOW_VALUE.search(title or '') or OFF_TOPIC.search(title or '') or NOT_MUST.search(title or ''): return False
     launch=bool(LAUNCH.search(title or ''))
     if source in MAJOR_SOURCES and launch and (WHAT.search(title or '') or NEW_FEATURE.search(title or '')): return True
     return bool(MAJOR.search(title or '')) and launch and bool(WHAT.search(title or '') or WHAT.search((text or '')[:400]))

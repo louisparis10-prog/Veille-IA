@@ -29,6 +29,11 @@ def create_app():
                       PERMANENT_SESSION_LIFETIME=timedelta(days=30))
     if os.environ.get('RENDER'):
         app.wsgi_app=ProxyFix(app.wsgi_app,x_for=1,x_proto=1)
+        # Préchauffe le cache de pertinence au réveil du service pour que le premier affichage soit rapide.
+        def warm():
+            try: server.state()
+            except Exception: pass
+        threading.Thread(target=warm,daemon=True).start()
     failures=defaultdict(list)
     failure_lock=threading.Lock()
     cache={'record':None,'loaded':None}
