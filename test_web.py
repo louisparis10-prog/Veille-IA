@@ -77,6 +77,34 @@ class WebTests(unittest.TestCase):
         self.assertEqual(self.client.post('/api/accounts',json={'action':'delete','username':'marie'},headers=self.headers).json['members'],[])
         self.assertIsNone(auth.find(server.conn,'marie'))
         with patch('app.time.monotonic',return_value=10**9): self.assertEqual(other.get('/api/state').status_code,401)
+    def test_each_member_has_a_private_space(self):
+        import json
+        with server.conn() as c:
+            c.execute('INSERT INTO articles(id,title,url,source,excerpt,analysis) VALUES(?,?,?,?,?,?)',('a1','Real Copilot news','https://example.com/a','OpenAI','Excerpt text',json.dumps(server.classify('Real Copilot news','Excerpt text'))))
+        h=self.headers
+        self.client.post('/api/item',json={'title':'Idée de Louis','stage':'Idée'},headers=h)
+        self.client.post('/api/article',json={'id':'a1','field':'favorite','value':True},headers=h)
+        member=self.visitor()
+        member.post('/signup',data={'username':'marie','password':'autre-mot-de-passe','confirm':'autre-mot-de-passe'})
+        seen=member.get('/api/state').json
+        self.assertEqual(seen['items'],[])
+        self.assertFalse(seen['articles'][0]['favorite'])
+        self.assertEqual(member.post('/api/item',json={'title':'Idée de Marie','stage':'Test'},headers=h).status_code,200)
+        member.post('/api/article',json={'id':'a1','field':'read','value':True},headers=h)
+        member.post('/api/settings',json={'interests':'vidéo'},headers=h)
+        mine=member.get('/api/state').json
+        self.assertEqual([i['title'] for i in mine['items']],['Idée de Marie'])
+        self.assertTrue(mine['articles'][0]['read']); self.assertEqual(mine['interests'],'vidéo')
+        item=mine['items'][0]
+        member.post('/api/item',json={'id':item['id'],'title':'Idée modifiée','stage':'Projet'},headers=h)
+        self.assertEqual(member.get('/api/state').json['items'][0]['stage'],'Projet')
+        admin=self.client.get('/api/state').json
+        self.assertEqual([i['title'] for i in admin['items']],['Idée de Louis'])
+        self.assertTrue(admin['articles'][0]['favorite']); self.assertFalse(admin['articles'][0]['read'])
+        self.assertNotEqual(admin['interests'],'vidéo')
+        # Supprimer le compte efface aussi son espace.
+        self.client.post('/api/accounts',json={'action':'delete','username':'marie'},headers=h)
+        self.assertEqual(server.load_space('marie')['items'],[])
     def test_member_changes_own_password(self):
         member=self.visitor()
         member.post('/signup',data={'username':'marie','password':'autre-mot-de-passe','confirm':'autre-mot-de-passe'})

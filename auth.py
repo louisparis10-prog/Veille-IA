@@ -86,7 +86,9 @@ def members(conn):
 
 def delete_member(conn,username):
     with conn() as c:
-        return c.execute('DELETE FROM settings WHERE key=?',(_member_key(username),)).rowcount==1
+        deleted=c.execute('DELETE FROM settings WHERE key=?',(_member_key(username),)).rowcount==1
+        c.execute('DELETE FROM settings WHERE key=?',('space:'+username.strip().lower(),))  # espace personnel du compte
+        return deleted
 
 def change_member(conn,old_username,username,password):
     """Changer l'identifiant et/ou le mot de passe d'un membre. None si le nouvel identifiant est pris."""
@@ -97,6 +99,7 @@ def change_member(conn,old_username,username,password):
         if _member_key(old_username)!=_member_key(username):
             if c.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT DO NOTHING',(_member_key(username),json.dumps(record))).rowcount!=1: return None
             c.execute('DELETE FROM settings WHERE key=?',(_member_key(old_username),))
+            c.execute('UPDATE settings SET key=? WHERE key=?',('space:'+username.strip().lower(),'space:'+old_username.strip().lower()))  # l'espace suit le compte
         else:
             c.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(record),_member_key(username)))
     return dict(record,role='member')

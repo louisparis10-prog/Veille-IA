@@ -262,18 +262,20 @@ def create_app():
 
     @app.get('/api/state')
     def state():
-        payload=server.state()
+        record=current()
+        payload=server.state(None if is_admin(record) else record['username'])
         if server.sync_if_stale(payload.get('last_sync')): payload['syncing']=True
         payload['user']=session.get('user','')
         payload['auth']=True
-        payload['admin']=is_admin(current())
+        payload['admin']=is_admin(record)
         return jsonify(payload)
 
     @app.post('/api/<action>')
     def action(action):
         body=request.get_json()
         if not isinstance(body,dict): return jsonify(error='Données invalides.'),400
-        status,payload=server.perform_action('/api/'+action,body)
+        record=current()
+        status,payload=server.perform_action('/api/'+action,body,None if is_admin(record) else record['username'])
         return jsonify(payload),status
 
     @app.errorhandler(400)

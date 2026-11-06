@@ -358,19 +358,32 @@ def _mentions(text): return list(_mentions_cached(text))
 MAX_ARTICLES=300  # articles récents envoyés à l'interface (favoris et articles liés à une idée toujours inclus)
 LEGACY_CATEGORIES={'Data & BI':'Données et décisionnel','Copilot & productivité':'Copilot et bureautique','Copilot et productivité':'Copilot et bureautique','IA & innovation':'IA et innovation','Automatisation':'Automatisation et agents'}
 
-def state():
+def state(member=None):
+    today=datetime.now().date().isoformat()
+    space=load_space(member) if member else None
+    if space is not None and today not in space['days']:
+        space['days'].append(today); save_space(member,space)
     with conn() as c:
-        c.execute('INSERT INTO activity VALUES(?) ON CONFLICT DO NOTHING',(datetime.now().date().isoformat(),))
         interests=c.execute("SELECT value FROM settings WHERE key='interests'").fetchone()['value']
-        items=[dict(r) for r in c.execute('SELECT * FROM items ORDER BY id DESC')]
+        if space is None:
+            c.execute('INSERT INTO activity VALUES(?) ON CONFLICT DO NOTHING',(today,))
+            items=[dict(r) for r in c.execute('SELECT * FROM items ORDER BY id DESC')]
+            favorites=None
+        else:
+            interests=space.get('interests') or interests
+            items=sorted((dict(i) for i in space['items']),key=lambda i:-int(i['id']))
+            favorites=set(space['favorite']); already_read=set(space['read'])
         linked={i['article_id'] for i in items if i.get('article_id')}
         # Seuls les articles récents (plus favoris et articles liés) sont lus : la base garde tout l'historique.
         rows=[dict(r) for r in c.execute('SELECT * FROM articles ORDER BY published DESC NULLS LAST LIMIT ?',(MAX_ARTICLES*2,))]
         seen={r['id'] for r in rows}
-        extra=[dict(r) for r in c.execute('SELECT * FROM articles WHERE favorite=1')]
+        if favorites is None: extra=[dict(r) for r in c.execute('SELECT * FROM articles WHERE favorite=1')]
+        else: extra=[]; linked=linked|favorites
         if linked: extra+=[dict(r) for r in c.execute('SELECT * FROM articles WHERE id IN ('+','.join('?'*len(linked))+')',tuple(linked))]
         for r in extra:
             if r['id'] not in seen: seen.add(r['id']); rows.append(r)
+        if favorites is not None:
+            for r in rows: r['favorite']=int(r['id'] in favorites); r['read']=int(r['id'] in already_read)
         kept=[]
         for a in rows:
             source=news_sources.BY_NAME.get(a['source']) if a['source'] else {}
@@ -428,7 +441,7 @@ def state():
         for name,config in news_sources.BY_NAME.items():
             row=stored.get(name) or {'name':name,'url':config['feed'],'status':'Non synchronisé · ajoutée au catalogue, collectée à la prochaine actualisation','checked':None}
             sources.append(dict(row,official=config['official'],family=config['family']))
-        days=[r['day'] for r in c.execute('SELECT day FROM activity')]
+        days=[r['day'] for r in c.execute('SELECT day FROM activity')] if space is None else list(space['days'])
     import ideas
     paid_ai=bool(os.environ.get('OPENAI_API_KEY')) and os.environ.get('ALLOW_PAID_AI')=='true'
     checked=[s['checked'] for s in sources if s.get('checked')]
@@ -447,7 +460,50 @@ def sync_if_stale(last_sync):
     LAST_AUTO_SYNC[0]=time.time()
     threading.Thread(target=sync,daemon=True).start()
     return True
-def perform_action(path,b):
+# Espace personnel d'un compte membre : lectures, favoris, idées, profil et jours d'activité.
+# Rangé dans settings (clé « space:<identifiant> ») : aucune nouvelle table n'est nécessaire.
+# Le compte administrateur garde les tables d'origine (articles.read/favorite, items, activity).
+def space_key(user): return 'space:'+user.strip().lower()
+def load_space(user):
+    with conn() as c: row=c.execute('SELECT value FROM settings WHERE key=?',(space_key(user),)).fetchone()
+    space=json.loads(row['value']) if row else {}
+    for key,default in (('read',[]),('favorite',[]),('items',[]),('days',[]),('next_id',1)): space.setdefault(key,default)
+    return space
+def save_space(user,space):
+    with conn() as c:
+        c.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',(space_key(user),json.dumps(space,ensure_ascii=False)))
+
+def member_action(path,b,member):
+    space=load_space(member)
+    if path=='/api/article':
+        field=b['field']
+        if field not in ['read','favorite']: raise ValueError('Champ invalide')
+        ids=set(space[field])
+        if b['value']: ids.add(str(b['id']))
+        else: ids.discard(str(b['id']))
+        space[field]=sorted(ids)
+    elif path=='/api/item':
+        stage=b.get('stage','Idée')
+        if stage not in ['Idée','Test','Projet','Déployé']: raise ValueError('Étape invalide')
+        title=str(b.get('title','')).strip()[:300]
+        if not title: raise ValueError('Titre requis')
+        notes=str(b.get('notes',''))[:10000]
+        if b.get('id'):
+            item=next((i for i in space['items'] if str(i['id'])==str(b['id'])),None)
+            if not item: raise ValueError('Idée introuvable')
+            item.update(title=title,stage=stage,notes=notes)
+        else:
+            if len(space['items'])>=500: raise ValueError('Nombre maximal d’idées atteint')
+            space['items'].append({'id':space['next_id'],'title':title,'stage':stage,'notes':notes,'article_id':b.get('article_id'),'created':datetime.now(timezone.utc).isoformat()})
+            space['next_id']+=1
+    elif path=='/api/settings':
+        space['interests']=str(b['interests'])[:1000]
+    else: return 404, {'error':'Introuvable'}
+    save_space(member,space)
+    return 200, {'ok':True}
+
+def perform_action(path,b,member=None):
+    if member and path in ('/api/article','/api/item','/api/settings'): return member_action(path,b,member)
     if path=='/api/sync':
         threading.Thread(target=sync,daemon=True).start(); return 202, {'message':'Collecte lancée'}
     if path=='/api/article':
