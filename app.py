@@ -256,6 +256,8 @@ def create_app():
         # Diagnostic temporaire : quelle adresse le serveur attribue-t-il à la requête ?
         return jsonify(remote_addr=request.remote_addr,
                        xff=request.headers.get('X-Forwarded-For'),
+                       cf=request.headers.get('CF-Connecting-IP'),
+                       true=request.headers.get('True-Client-IP'),
                        real_ip=request.headers.get('X-Real-IP'))
 
     @app.get('/healthz')
