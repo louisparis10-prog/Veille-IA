@@ -38,9 +38,6 @@ def create_app():
     app.config.update(SECRET_KEY=secret,SESSION_COOKIE_NAME='signal_session',SESSION_COOKIE_HTTPONLY=True,
                       SESSION_COOKIE_SAMESITE='Lax',SESSION_COOKIE_SECURE=production,
                       PERMANENT_SESSION_LIFETIME=timedelta(days=30))
-    # Nettoyage unique des comptes de test créés pendant l'audit de sécurité (à retirer ensuite).
-    try: auth.purge_test_accounts(server.conn,('sonde','probe','audit-securite','test-'))
-    except Exception: pass
     if os.environ.get('RENDER'):
         app.wsgi_app=ProxyFix(app.wsgi_app,x_for=1,x_proto=1)
         # Préchauffe le cache de pertinence au réveil du service pour que le premier affichage soit rapide.
