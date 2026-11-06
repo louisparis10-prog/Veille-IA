@@ -133,6 +133,14 @@ def change_member(conn,old_username,username,password):
             c.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(record),_member_key(username)))
     return dict(record,role='member')
 
+def purge_test_accounts(conn, prefixes):
+    """Supprime les comptes membres de test (et leur espace) créés pendant l'audit de sécurité."""
+    removed=[]
+    for name in [a['username'] for a in members(conn)]:
+        if any(name.lower().startswith(p) for p in prefixes):
+            delete_member(conn,name); removed.append(name)
+    return removed
+
 def signup_open(conn):
     with conn() as c:
         row=c.execute('SELECT value FROM settings WHERE key=?',(SIGNUP_KEY,)).fetchone()
