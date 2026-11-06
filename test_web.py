@@ -49,6 +49,43 @@ class WebTests(unittest.TestCase):
         self.assertEqual(auth.load(server.conn)['username'],'Louis')
         self.assertTrue(other.get('/setup').headers['Location'].endswith('/login'))
 
+    def test_signup_creates_a_member_account_managed_by_the_admin(self):
+        guest=self.visitor()
+        with guest.get('/signup') as page: self.assertEqual(page.status_code,200)
+        self.assertIn('m=pris',guest.post('/signup',data={'username':'LOUIS','password':PASSWORD,'confirm':PASSWORD}).headers['Location'])
+        self.assertIn('m=faible',guest.post('/signup',data={'username':'marie','password':'court','confirm':'court'}).headers['Location'])
+        created=guest.post('/signup',data={'username':'Marie','password':'autre-mot-de-passe','confirm':'autre-mot-de-passe'})
+        self.assertTrue(created.headers['Location'].endswith('/'))
+        state=guest.get('/api/state').json
+        self.assertEqual(state['user'],'Marie'); self.assertFalse(state['admin'])
+        self.assertIn('m=pris',self.visitor().post('/signup',data={'username':'marie','password':PASSWORD,'confirm':PASSWORD}).headers['Location'])
+        self.assertNotIn('autre-mot-de-passe',str(auth.find(server.conn,'marie')))
+        # Un membre ne gère pas les comptes ; l'administrateur oui.
+        self.assertEqual(guest.get('/api/accounts').status_code,403)
+        self.assertEqual(guest.post('/api/accounts',json={'action':'signup','open':False},headers=self.headers).status_code,403)
+        self.assertTrue(self.client.get('/api/state').json['admin'])
+        self.assertEqual([m['username'] for m in self.client.get('/api/accounts').json['members']],['Marie'])
+        # Connexion du membre avec son propre mot de passe, insensible à la casse de l'identifiant.
+        other=self.visitor()
+        self.assertTrue(other.post('/login',data={'username':'marie','password':'autre-mot-de-passe'}).headers['Location'].endswith('/'))
+        self.assertIn('m=identifiants',self.visitor().post('/login',data={'username':'marie','password':PASSWORD}).headers['Location'])
+        # Fermer les inscriptions, puis supprimer le compte : la personne perd l'accès.
+        closed=self.client.post('/api/accounts',json={'action':'signup','open':False},headers=self.headers).json
+        self.assertFalse(closed['signup_open'])
+        self.assertIn('m=ferme',self.visitor().get('/signup').headers['Location'])
+        self.assertIn('m=ferme',self.visitor().post('/signup',data={'username':'paul','password':PASSWORD,'confirm':PASSWORD}).headers['Location'])
+        self.assertEqual(self.client.post('/api/accounts',json={'action':'delete','username':'marie'},headers=self.headers).json['members'],[])
+        self.assertIsNone(auth.find(server.conn,'marie'))
+        with patch('app.time.monotonic',return_value=10**9): self.assertEqual(other.get('/api/state').status_code,401)
+    def test_member_changes_own_password(self):
+        member=self.visitor()
+        member.post('/signup',data={'username':'marie','password':'autre-mot-de-passe','confirm':'autre-mot-de-passe'})
+        self.assertEqual(member.post('/api/password',json={'current':'autre-mot-de-passe','username':'louis','new':'nouveau-secret-123','confirm':'nouveau-secret-123'},headers=self.headers).status_code,409)
+        changed=member.post('/api/password',json={'current':'autre-mot-de-passe','username':'marie2','new':'nouveau-secret-123','confirm':'nouveau-secret-123'},headers=self.headers)
+        self.assertEqual(changed.status_code,200)
+        self.assertIsNone(auth.find(server.conn,'marie'))
+        self.assertTrue(auth.verify(auth.find(server.conn,'marie2'),'marie2','nouveau-secret-123'))
+        self.assertEqual(auth.load(server.conn)['username'],'louis')
     def test_private_pages_and_public_health(self):
         visitor=self.visitor()
         self.assertTrue(visitor.get('/').headers['Location'].endswith('/login'))

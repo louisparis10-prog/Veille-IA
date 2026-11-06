@@ -58,6 +58,8 @@ input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px color-m
 @keyframes spin{to{transform:rotate(360deg)}}
 .secure{display:flex;align-items:center;justify-content:center;gap:8px;color:var(--muted);font-size:13px;margin-top:26px}
 .mobile-logo{display:none}
+.switch{text-align:center;color:var(--muted);font-size:14px;margin:22px 0 0}
+.switch a{color:var(--accent);font-weight:700;text-decoration:none}.switch a:hover{text-decoration:underline}
 @media (max-width:860px){
  body{grid-template-columns:1fr}
  .brand-side{display:none}
@@ -110,6 +112,7 @@ input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px color-m
       </div>
       <button class="submit" id="submit" type="submit"><span class="spinner" aria-hidden="true"></span><span id="submit-label">Se connecter</span></button>
     </form>
+    <p class="switch" id="switch"><span id="switch-text">Pas encore de compte ?</span> <a id="switch-link" href="/signup">Créer un compte</a></p>
     <div class="secure"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>Accès privé · connexion chiffrée</div>
   </div>
 </main>
@@ -124,20 +127,27 @@ input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px color-m
     identifiant:['error','Identifiant invalide : 1 à 60 caractères, sans espace.'],
     faible:['error','Le mot de passe doit contenir au moins 10 caractères.'],
     different:['error','Les deux mots de passe ne correspondent pas.'],
-    origine:['error','La demande a été refusée pour des raisons de sécurité. Rechargez la page.']
+    origine:['error','La demande a été refusée pour des raisons de sécurité. Rechargez la page.'],
+    pris:['error','Cet identifiant est déjà utilisé. Choisissez-en un autre.'],
+    ferme:['info','Les inscriptions sont fermées. Demandez à l’administrateur de les rouvrir.']
   };
-  const setup=location.pathname==='/setup';
+  const path=location.pathname,signup=path==='/signup',setup=path==='/setup'||signup;
+  if(path==='/setup')document.getElementById('switch').hidden=true;
+  if(signup){
+    document.getElementById('switch-text').textContent='Déjà un compte ?';
+    const link=document.getElementById('switch-link');link.textContent='Se connecter';link.href='/login';
+  }
   if(setup){
-    document.title='Créer votre accès · Signal';
-    document.getElementById('heading').textContent='Créer votre accès';
-    document.getElementById('lead').textContent='Première ouverture : choisissez l’identifiant et le mot de passe qui protégeront votre veille.';
-    document.getElementById('login').action='/setup';
+    document.title=(signup?'Créer un compte':'Créer votre accès')+' · Signal';
+    document.getElementById('heading').textContent=signup?'Créer un compte':'Créer votre accès';
+    document.getElementById('lead').textContent=signup?'Choisissez votre identifiant et votre mot de passe pour accéder à la veille.':'Première ouverture : choisissez l’identifiant et le mot de passe qui protégeront votre veille.';
+    document.getElementById('login').action=signup?'/signup':'/setup';
     document.getElementById('password').autocomplete='new-password';
     document.getElementById('hint').hidden=false;
     document.getElementById('confirm-field').hidden=false;
     document.getElementById('confirm').required=true;
     document.getElementById('remember-row').hidden=true;
-    document.getElementById('submit-label').textContent='Créer mon accès';
+    document.getElementById('submit-label').textContent=signup?'Créer mon compte':'Créer mon accès';
   }
   const key=new URLSearchParams(location.search).get('m');
   const alert=document.getElementById('alert');

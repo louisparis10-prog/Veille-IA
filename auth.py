@@ -49,6 +49,67 @@ def change(conn,username,password):
 def reset(conn):
     with conn() as c: c.execute('DELETE FROM settings WHERE key=?',(KEY,))
 
+# ---- Comptes supplémentaires (inscription libre, fermable par l'administrateur) ----
+# Le compte « access » est celui de l'administrateur (le premier créé). Les autres sont
+# rangés un par un sous la clé « account:<identifiant en minuscules> » : l'unicité est
+# garantie par la clé primaire, sans créer de nouvelle table.
+PREFIX='account:'
+SIGNUP_KEY='signup'
+
+def _member_key(username): return PREFIX+username.strip().lower()
+
+def find(conn,username):
+    """Compte correspondant à l'identifiant (administrateur ou membre), sinon None."""
+    username=(username or '').strip()
+    if not username: return None
+    owner=load(conn)
+    if owner and owner['username'].lower()==username.lower(): return dict(owner,role='admin')
+    with conn() as c:
+        row=c.execute('SELECT value FROM settings WHERE key=?',(_member_key(username),)).fetchone()
+    return dict(json.loads(row['value']),role='member') if row else None
+
+def register(conn,username,password):
+    """Créer un compte membre. Retourne None si l'identifiant est déjà pris."""
+    owner=load(conn)
+    if not owner or owner['username'].lower()==username.strip().lower(): return None
+    record=dict(_record(username.strip(),password),created=time.time())
+    with conn() as c:
+        cursor=c.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT DO NOTHING',(_member_key(username),json.dumps(record)))
+        if cursor.rowcount!=1: return None
+    return dict(record,role='member')
+
+def members(conn):
+    with conn() as c:
+        rows=c.execute('SELECT value FROM settings WHERE key LIKE ?',(PREFIX+'%',)).fetchall()
+    accounts=[json.loads(r['value']) for r in rows]
+    return sorted(({'username':a['username'],'created':a.get('created') or a.get('updated')} for a in accounts),key=lambda a:a['created'] or 0)
+
+def delete_member(conn,username):
+    with conn() as c:
+        return c.execute('DELETE FROM settings WHERE key=?',(_member_key(username),)).rowcount==1
+
+def change_member(conn,old_username,username,password):
+    """Changer l'identifiant et/ou le mot de passe d'un membre. None si le nouvel identifiant est pris."""
+    owner=load(conn)
+    if owner and owner['username'].lower()==username.strip().lower(): return None
+    record=dict(_record(username.strip(),password),created=(find(conn,old_username) or {}).get('created'))
+    with conn() as c:
+        if _member_key(old_username)!=_member_key(username):
+            if c.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT DO NOTHING',(_member_key(username),json.dumps(record))).rowcount!=1: return None
+            c.execute('DELETE FROM settings WHERE key=?',(_member_key(old_username),))
+        else:
+            c.execute('UPDATE settings SET value=? WHERE key=?',(json.dumps(record),_member_key(username)))
+    return dict(record,role='member')
+
+def signup_open(conn):
+    with conn() as c:
+        row=c.execute('SELECT value FROM settings WHERE key=?',(SIGNUP_KEY,)).fetchone()
+    return not row or row['value']!='closed'
+
+def set_signup(conn,is_open):
+    with conn() as c:
+        c.execute("INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",(SIGNUP_KEY,'open' if is_open else 'closed'))
+
 def verify(record,username,password):
     if not record: return False
     expected=bytes.fromhex(record['hash'])

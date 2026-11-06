@@ -12,7 +12,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 import auth
 import server
 
-PUBLIC_PATHS = {'/healthz', '/login', '/setup'}
+PUBLIC_PATHS = {'/healthz', '/login', '/setup', '/signup'}
 
 def create_app():
     server.AUTO_TRANSLATE=not os.environ.get('DISABLE_AUTO_TRANSLATE')
@@ -46,8 +46,35 @@ def create_app():
                 cache['record']=auth.load(server.conn); cache['loaded']=time.monotonic()
             return cache['record']
 
+    users={}  # identifiant en minuscules -> (compte, date de lecture)
+
+    def current(force=False):
+        """Compte de la session en cours (administrateur ou membre), relu au plus toutes les 30 secondes."""
+        name=session.get('user')
+        if not name: return None
+        with cache_lock:
+            hit=users.get(name.lower())
+            if not force and hit and time.monotonic()-hit[1]<30: return hit[0]
+        record=auth.find(server.conn,name)
+        with cache_lock: users[name.lower()]=(record,time.monotonic())
+        return record
+
+    def is_admin(record): return bool(record) and record.get('role','admin')!='member'
+
     def remember(record):
-        with cache_lock: cache['record']=record; cache['loaded']=time.monotonic()
+        with cache_lock:
+            if is_admin(record): cache['record']=record; cache['loaded']=time.monotonic()
+            users[record['username'].lower()]=(record,time.monotonic())
+
+    def forget(username):
+        with cache_lock: users.pop(username.lower(),None)
+
+    signups=defaultdict(list)
+    def too_many_signups(ip):
+        now=time.monotonic()
+        with failure_lock:
+            signups[ip]=[t for t in signups[ip] if now-t<3600]
+            return len(signups[ip])>=5
 
     def fingerprint(record):
         # Changer le mot de passe change l'empreinte et invalide les autres sessions.
@@ -77,11 +104,10 @@ def create_app():
     @app.before_request
     def protect():
         if request.path in PUBLIC_PATHS: return None
-        record=account()
-        if not record:
+        if not account():
             if request.path.startswith('/api/'): return jsonify(error='Créez votre accès pour commencer.',setup=True),401
             return redirect('/setup')
-        if not logged_in(record):
+        if not logged_in(current()):
             if request.path.startswith('/api/'): return jsonify(error='Session expirée. Reconnectez-vous.',login=True),401
             return redirect('/login?m=expire' if session.get('was_logged_in') else '/login')
         if request.method=='POST':
@@ -103,8 +129,7 @@ def create_app():
 
     @app.get('/setup')
     def setup_page():
-        record=account(force=True)
-        if record: return redirect('/' if logged_in(record) else '/login')
+        if account(force=True): return redirect('/' if logged_in(current()) else '/login')
         return login_html()
 
     @app.post('/setup')
@@ -122,24 +147,70 @@ def create_app():
 
     @app.get('/login')
     def login_page():
-        record=account(force=True)
-        if not record: return redirect('/setup')
-        if logged_in(record): return redirect('/')
+        if not account(force=True): return redirect('/setup')
+        if logged_in(current()): return redirect('/')
         return login_html()
 
     @app.post('/login')
     def login():
         ip=request.remote_addr
         if not same_origin(): return redirect('/login?m=origine',303)
-        record=account(force=True)
-        if not record: return redirect('/setup',303)
+        owner=account(force=True)
+        if not owner: return redirect('/setup',303)
         if blocked(ip): return redirect('/login?m=bloque',303)
-        if not auth.verify(record,request.form.get('username',''),request.form.get('password','')):
+        username=request.form.get('username','')
+        record=auth.find(server.conn,username)
+        if not record: auth.verify(owner,'',request.form.get('password',''))  # même durée qu'un vrai essai
+        if not record or not auth.verify(record,username,request.form.get('password','')):
             record_failure(ip)
             return redirect('/login?m=identifiants',303)
+        remember(record)
         with failure_lock: failures.pop(ip,None)
         open_session(record,request.form.get('remember')=='1')
         return redirect('/',303)
+
+    @app.get('/signup')
+    def signup_page():
+        if not account(force=True): return redirect('/setup')
+        if logged_in(current()): return redirect('/')
+        if not auth.signup_open(server.conn): return redirect('/login?m=ferme')
+        return login_html()
+
+    @app.post('/signup')
+    def signup():
+        ip=request.remote_addr
+        if not same_origin(): return redirect('/signup?m=origine',303)
+        if not account(force=True): return redirect('/setup',303)
+        if not auth.signup_open(server.conn): return redirect('/login?m=ferme',303)
+        if too_many_signups(ip): return redirect('/signup?m=bloque',303)
+        username=request.form.get('username','').strip()
+        password=request.form.get('password','')
+        problem=auth.validate(username,password,request.form.get('confirm',''))
+        if problem: return redirect('/signup?m='+problem,303)
+        record=auth.register(server.conn,username,password)
+        if not record: return redirect('/signup?m=pris',303)
+        with failure_lock: signups[ip].append(time.monotonic())
+        remember(record); open_session(record,True)
+        return redirect('/',303)
+
+    @app.get('/api/accounts')
+    def accounts():
+        if not is_admin(current()): return jsonify(error='Réservé à l’administrateur.'),403
+        return jsonify(members=auth.members(server.conn),signup_open=auth.signup_open(server.conn))
+
+    @app.post('/api/accounts')
+    def manage_accounts():
+        if not is_admin(current(force=True)): return jsonify(error='Réservé à l’administrateur.'),403
+        body=request.get_json()
+        if not isinstance(body,dict): return jsonify(error='Données invalides.'),400
+        if body.get('action')=='signup':
+            auth.set_signup(server.conn,bool(body.get('open')))
+        elif body.get('action')=='delete':
+            username=str(body.get('username',''))
+            if not auth.delete_member(server.conn,username): return jsonify(error='Compte introuvable.'),404
+            forget(username)
+        else: return jsonify(error='Action inconnue.'),400
+        return jsonify(members=auth.members(server.conn),signup_open=auth.signup_open(server.conn))
 
     @app.post('/logout')
     def logout():
@@ -153,7 +224,7 @@ def create_app():
         if not isinstance(body,dict): return jsonify(error='Données invalides.'),400
         ip=request.remote_addr
         if blocked(ip): return jsonify(error='Trop de tentatives. Réessayez dans une minute.'),429
-        record=account(force=True)
+        record=current(force=True)
         if not auth.verify(record,record['username'],str(body.get('current',''))):
             record_failure(ip)
             return jsonify(error='Mot de passe actuel incorrect.'),403
@@ -162,8 +233,15 @@ def create_app():
         if problem:
             messages={'identifiant':'Identifiant invalide : 1 à 60 caractères, sans espace.','faible':'Le nouveau mot de passe doit contenir au moins '+str(auth.MIN_LENGTH)+' caractères.','different':'La confirmation ne correspond pas au nouveau mot de passe.'}
             return jsonify(error=messages[problem]),400
-        updated=auth.change(server.conn,username,str(body['new']))
-        remember(updated); open_session(updated,session.permanent)
+        taken=jsonify(error='Cet identifiant est déjà utilisé par un autre compte.'),409
+        if is_admin(record):
+            other=auth.find(server.conn,username)
+            if other and not is_admin(other): return taken
+            updated=auth.change(server.conn,username,str(body['new']))
+        else:
+            updated=auth.change_member(server.conn,record['username'],username,str(body['new']))
+            if not updated: return taken
+        forget(record['username']); remember(updated); open_session(updated,session.permanent)
         return jsonify(ok=True,user=username)
 
     @app.get('/healthz')
@@ -188,6 +266,7 @@ def create_app():
         if server.sync_if_stale(payload.get('last_sync')): payload['syncing']=True
         payload['user']=session.get('user','')
         payload['auth']=True
+        payload['admin']=is_admin(current())
         return jsonify(payload)
 
     @app.post('/api/<action>')
