@@ -14,7 +14,7 @@ import server
 
 # Seuils de limitation, partagés entre tous les processus via la base (voir ratelimit.py).
 LOGIN_LIMIT, LOGIN_WINDOW = 8, 60       # 8 échecs de connexion par minute et par adresse IP
-SIGNUP_LIMIT, SIGNUP_WINDOW = 5, 3600   # 5 inscriptions par heure et par adresse IP
+SIGNUP_LIMIT, SIGNUP_WINDOW = 8, 3600   # 8 tentatives d'inscription par heure et par adresse IP
 
 PUBLIC_PATHS = {'/healthz', '/login', '/setup', '/signup'}
 
@@ -25,9 +25,16 @@ def create_app():
     production=os.environ.get('APP_ENV')=='production' or bool(os.environ.get('RENDER'))
     if production and not os.environ.get('DATABASE_URL'):
         raise RuntimeError('Configurer DATABASE_URL avant le démarrage.')
-    # Clé de signature des sessions : SECRET_KEY si fournie, sinon dérivée de la chaîne de base de données,
-    # secrète et présente uniquement sur le serveur.
-    secret=os.environ.get('SECRET_KEY') or hashlib.sha256(('signal-session|'+os.environ.get('DATABASE_URL','')+'|'+str(server.DB)).encode()).hexdigest()
+    # Clé de signature des sessions, dans l'ordre de préférence :
+    # 1. SECRET_KEY si fournie (contrôlée par l'exploitant) ;
+    # 2. sinon une clé aléatoire persistée en base, indépendante de DATABASE_URL ;
+    # 3. en dernier recours (base indisponible au démarrage), dérivée de DATABASE_URL.
+    secret=os.environ.get('SECRET_KEY')
+    if not secret:
+        try: secret=auth.session_secret(server.conn)
+        except Exception: secret=None
+    if not secret:
+        secret=hashlib.sha256(('signal-session|'+os.environ.get('DATABASE_URL','')+'|'+str(server.DB)).encode()).hexdigest()
     app.config.update(SECRET_KEY=secret,SESSION_COOKIE_NAME='signal_session',SESSION_COOKIE_HTTPONLY=True,
                       SESSION_COOKIE_SAMESITE='Lax',SESSION_COOKIE_SECURE=production,
                       PERMANENT_SESSION_LIFETIME=timedelta(days=30))
@@ -178,13 +185,15 @@ def create_app():
         if not account(force=True): return redirect('/setup',303)
         if not auth.signup_open(server.conn): return redirect('/login?m=ferme',303)
         if too_many_signups(ip): return redirect('/signup?m=bloque',303)
+        # Chaque tentative compte (pas seulement les réussites) : empêche de sonder en masse
+        # quels identifiants existent déjà.
+        ratelimit.record(server.conn,'signup',ip,SIGNUP_WINDOW)
         username=request.form.get('username','').strip()
         password=request.form.get('password','')
         problem=auth.validate(username,password,request.form.get('confirm',''))
         if problem: return redirect('/signup?m='+problem,303)
         record=auth.register(server.conn,username,password)
         if not record: return redirect('/signup?m=pris',303)
-        ratelimit.record(server.conn,'signup',ip,SIGNUP_WINDOW)
         remember(record); open_session(record,True)
         return redirect('/',303)
 
@@ -226,7 +235,7 @@ def create_app():
         username=str(body.get('username') or record['username']).strip()
         problem=auth.validate(username,str(body.get('new','')),str(body.get('confirm','')))
         if problem:
-            messages={'identifiant':'Identifiant invalide : 1 à 60 caractères, sans espace.','faible':'Le nouveau mot de passe doit contenir au moins '+str(auth.MIN_LENGTH)+' caractères.','different':'La confirmation ne correspond pas au nouveau mot de passe.'}
+            messages={'identifiant':'Identifiant invalide : 1 à 60 caractères, sans espace.','faible':'Le nouveau mot de passe doit contenir au moins '+str(auth.MIN_LENGTH)+' caractères.','evident':'Mot de passe trop simple ou trop courant. Évitez les suites et les répétitions.','different':'La confirmation ne correspond pas au nouveau mot de passe.'}
             return jsonify(error=messages[problem]),400
         taken=jsonify(error='Cet identifiant est déjà utilisé par un autre compte.'),409
         if is_admin(record):

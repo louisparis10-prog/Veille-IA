@@ -13,6 +13,22 @@ KEY='access'
 ITERATIONS=310_000
 MIN_LENGTH=10
 
+# Mots de passe manifestement faibles, refusés même s'ils font 10 caractères.
+_COMMON={'motdepasse','password','passwordpassword','azertyuiop','qwertyuiop','1234567890',
+         '0123456789','123456789','1234512345','veilleia','signalia','administrateur','changemoi',
+         'motdepasse1','azertyuiop1','loginlogin','accesacces','bonjourbonjour'}
+_SEQUENCES=['0123456789','1234567890','azertyuiopqsdfghjklmwxcvbn','qwertyuiopasdfghjklzxcvbnm',
+            'abcdefghijklmnopqrstuvwxyz']
+
+def _too_obvious(password):
+    """Vrai si le mot de passe est trop répétitif, trop courant ou une simple suite de touches."""
+    p=password.lower()
+    if len(set(password))<4: return True              # ex. « 0000000000 », « abababab »
+    if p in _COMMON: return True
+    for seq in _SEQUENCES:
+        if p in seq or p in seq[::-1]: return True    # suite de chiffres, de lettres ou de touches
+    return False
+
 def _hash(password,salt,iterations):
     return hashlib.pbkdf2_hmac('sha256',password.encode('utf-8'),bytes.fromhex(salt),iterations).hex()
 
@@ -24,8 +40,21 @@ def validate(username,password,confirm):
     """Retourne un code d'erreur, ou None si les valeurs sont acceptables."""
     if not username or len(username)>60 or any(ch.isspace() for ch in username): return 'identifiant'
     if len(password)<MIN_LENGTH or len(password)>256: return 'faible'
+    if _too_obvious(password): return 'evident'
     if password!=confirm: return 'different'
     return None
+
+def session_secret(conn):
+    """Clé de signature des sessions, aléatoire et persistée en base (clé « session_secret »).
+
+    Indépendante de DATABASE_URL : connaître la chaîne de connexion ne suffit plus à
+    deviner la clé. Générée une seule fois, puis stable à travers les redémarrages.
+    """
+    with conn() as c:
+        c.execute("INSERT INTO settings(key,value) VALUES('session_secret',?) ON CONFLICT(key) DO NOTHING",(secrets.token_hex(32),))
+    with conn() as c:
+        row=c.execute("SELECT value FROM settings WHERE key='session_secret'").fetchone()
+    return row['value'] if row else None
 
 def load(conn):
     with conn() as c:

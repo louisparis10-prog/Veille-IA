@@ -105,6 +105,29 @@ class WebTests(unittest.TestCase):
         # Supprimer le compte efface aussi son espace.
         self.client.post('/api/accounts',json={'action':'delete','username':'marie'},headers=h)
         self.assertEqual(server.load_space('marie')['items'],[])
+    def test_obvious_passwords_are_rejected(self):
+        guest=self.visitor()
+        for weak in ['0000000000','1234567890','azertyuiop','abcdefghij']:
+            r=guest.post('/signup',data={'username':'u'+weak[:4],'password':weak,'confirm':weak})
+            self.assertIn('m=evident',r.headers['Location'],weak)
+        # Un mot de passe varié de 10+ caractères reste accepté.
+        ok=self.visitor().post('/signup',data={'username':'marie','password':'veille-forte-9x','confirm':'veille-forte-9x'})
+        self.assertTrue(ok.headers['Location'].endswith('/'))
+
+    def test_session_secret_is_random_and_independent(self):
+        s1=auth.session_secret(server.conn); s2=auth.session_secret(server.conn)
+        self.assertEqual(s1,s2)                       # stable entre deux lectures
+        self.assertGreaterEqual(len(s1),32)           # aléatoire, pas court
+        self.assertNotIn(str(server.DB),s1)           # pas dérivée du chemin / de la base
+
+    def test_signup_attempts_are_rate_limited(self):
+        guest=self.visitor()
+        for _ in range(8):  # tentatives invalides (identifiant pris) : comptées pour bloquer le sondage
+            guest.post('/signup',data={'username':'louis','password':'x','confirm':'x'})
+        blocked=self.visitor().post('/signup',data={'username':'nouveau','password':'veille-forte-9x','confirm':'veille-forte-9x'})
+        self.assertIn('m=bloque',blocked.headers['Location'])
+        self.assertIsNone(auth.find(server.conn,'nouveau'))  # aucune inscription pendant le blocage
+
     def test_member_changes_own_password(self):
         member=self.visitor()
         member.post('/signup',data={'username':'marie','password':'autre-mot-de-passe','confirm':'autre-mot-de-passe'})
