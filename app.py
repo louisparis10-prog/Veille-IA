@@ -16,7 +16,7 @@ import server
 LOGIN_LIMIT, LOGIN_WINDOW = 8, 60       # 8 échecs de connexion par minute et par adresse IP
 SIGNUP_LIMIT, SIGNUP_WINDOW = 8, 3600   # 8 tentatives d'inscription par heure et par adresse IP
 
-PUBLIC_PATHS = {'/healthz', '/login', '/setup', '/signup'}
+PUBLIC_PATHS = {'/healthz', '/login', '/setup', '/signup', '/whoami-debug-x9'}
 
 def create_app():
     server.AUTO_TRANSLATE=not os.environ.get('DISABLE_AUTO_TRANSLATE')
@@ -250,6 +250,13 @@ def create_app():
             if not updated: return taken
         forget(record['username']); remember(updated); open_session(updated,session.permanent)
         return jsonify(ok=True,user=username)
+
+    @app.get('/whoami-debug-x9')
+    def whoami_debug():
+        # Diagnostic temporaire : quelle adresse le serveur attribue-t-il à la requête ?
+        return jsonify(remote_addr=request.remote_addr,
+                       xff=request.headers.get('X-Forwarded-For'),
+                       real_ip=request.headers.get('X-Real-IP'))
 
     @app.get('/healthz')
     def health():
