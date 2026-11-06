@@ -16,7 +16,7 @@ import server
 LOGIN_LIMIT, LOGIN_WINDOW = 8, 60       # 8 échecs de connexion par minute et par adresse IP
 SIGNUP_LIMIT, SIGNUP_WINDOW = 8, 3600   # 8 tentatives d'inscription par heure et par adresse IP
 
-PUBLIC_PATHS = {'/healthz', '/login', '/setup', '/signup', '/whoami-debug-x9'}
+PUBLIC_PATHS = {'/healthz', '/login', '/setup', '/signup'}
 
 def create_app():
     server.AUTO_TRANSLATE=not os.environ.get('DISABLE_AUTO_TRANSLATE')
@@ -106,6 +106,20 @@ def create_app():
     def same_origin():
         return request.headers.get('Origin') in (None,request.host_url.rstrip('/'))
 
+    def client_ip():
+        """Adresse du client pour la limitation des tentatives.
+
+        Derrière Cloudflare/Render, request.remote_addr est une adresse interne qui change
+        à chaque requête. CF-Connecting-IP est posé par Cloudflare (non falsifiable par le
+        client) et reste stable. À défaut, la première adresse de X-Forwarded-For, puis
+        l'adresse directe.
+        """
+        cf=request.headers.get('CF-Connecting-IP')
+        if cf: return cf.strip()
+        xff=request.headers.get('X-Forwarded-For')
+        if xff: return xff.split(',')[0].strip()
+        return request.remote_addr or '?'
+
     @app.before_request
     def protect():
         if request.path in PUBLIC_PATHS: return None
@@ -158,7 +172,7 @@ def create_app():
 
     @app.post('/login')
     def login():
-        ip=request.remote_addr
+        ip=client_ip()
         if not same_origin(): return redirect('/login?m=origine',303)
         owner=account(force=True)
         if not owner: return redirect('/setup',303)
@@ -183,7 +197,7 @@ def create_app():
 
     @app.post('/signup')
     def signup():
-        ip=request.remote_addr
+        ip=client_ip()
         if not same_origin(): return redirect('/signup?m=origine',303)
         if not account(force=True): return redirect('/setup',303)
         if not auth.signup_open(server.conn): return redirect('/login?m=ferme',303)
@@ -229,7 +243,7 @@ def create_app():
     def change_password():
         body=request.get_json()
         if not isinstance(body,dict): return jsonify(error='Données invalides.'),400
-        ip=request.remote_addr
+        ip=client_ip()
         if blocked(ip): return jsonify(error='Trop de tentatives. Réessayez dans une minute.'),429
         record=current(force=True)
         if not auth.verify(record,record['username'],str(body.get('current',''))):
@@ -250,15 +264,6 @@ def create_app():
             if not updated: return taken
         forget(record['username']); remember(updated); open_session(updated,session.permanent)
         return jsonify(ok=True,user=username)
-
-    @app.get('/whoami-debug-x9')
-    def whoami_debug():
-        # Diagnostic temporaire : quelle adresse le serveur attribue-t-il à la requête ?
-        return jsonify(remote_addr=request.remote_addr,
-                       xff=request.headers.get('X-Forwarded-For'),
-                       cf=request.headers.get('CF-Connecting-IP'),
-                       true=request.headers.get('True-Client-IP'),
-                       real_ip=request.headers.get('X-Real-IP'))
 
     @app.get('/healthz')
     def health():

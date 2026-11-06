@@ -176,6 +176,16 @@ class WebTests(unittest.TestCase):
         ratelimit.clear(server.conn,'login','127.0.0.1')
         self.assertFalse(ratelimit.blocked(server.conn,'login','127.0.0.1',8,60))
 
+    def test_rate_limit_identifies_client_by_cloudflare_header(self):
+        # En ligne, remote_addr est une adresse interne qui tourne ; on compte par
+        # CF-Connecting-IP (posée par Cloudflare, non falsifiable).
+        attacker={'CF-Connecting-IP':'5.5.5.5'}
+        for _ in range(8): self.visitor().post('/login',data={'username':'louis','password':'faux'},headers=attacker)
+        self.assertIn('m=bloque',self.visitor().post('/login',data={'username':'louis','password':PASSWORD},headers=attacker).headers['Location'])
+        # Un autre client (autre adresse) n'est pas bloqué et peut se connecter.
+        other={'CF-Connecting-IP':'6.6.6.6'}
+        self.assertTrue(self.visitor().post('/login',data={'username':'louis','password':PASSWORD},headers=other).headers['Location'].endswith('/'))
+
     def test_brute_force_limit_is_shared_between_processes(self):
         # Reproduit l'incident de production : chaque processus web a sa propre mémoire.
         # Le compteur étant en base, les échecs de deux instances s'additionnent.
