@@ -4,13 +4,17 @@ import hmac
 import os
 import threading
 import time
-from collections import defaultdict
 from datetime import timedelta
 
 from flask import Flask, jsonify, redirect, request, send_from_directory, session
 from werkzeug.middleware.proxy_fix import ProxyFix
 import auth
+import ratelimit
 import server
+
+# Seuils de limitation, partagés entre tous les processus via la base (voir ratelimit.py).
+LOGIN_LIMIT, LOGIN_WINDOW = 8, 60       # 8 échecs de connexion par minute et par adresse IP
+SIGNUP_LIMIT, SIGNUP_WINDOW = 5, 3600   # 5 inscriptions par heure et par adresse IP
 
 PUBLIC_PATHS = {'/healthz', '/login', '/setup', '/signup'}
 
@@ -34,8 +38,6 @@ def create_app():
             try: server.state()
             except Exception: pass
         threading.Thread(target=warm,daemon=True).start()
-    failures=defaultdict(list)
-    failure_lock=threading.Lock()
     cache={'record':None,'loaded':None}
     cache_lock=threading.Lock()
 
@@ -69,12 +71,8 @@ def create_app():
     def forget(username):
         with cache_lock: users.pop(username.lower(),None)
 
-    signups=defaultdict(list)
     def too_many_signups(ip):
-        now=time.monotonic()
-        with failure_lock:
-            signups[ip]=[t for t in signups[ip] if now-t<3600]
-            return len(signups[ip])>=5
+        return ratelimit.blocked(server.conn,'signup',ip,SIGNUP_LIMIT,SIGNUP_WINDOW)
 
     def fingerprint(record):
         # Changer le mot de passe change l'empreinte et invalide les autres sessions.
@@ -86,13 +84,10 @@ def create_app():
         session['auth']=fingerprint(record); session['user']=record['username']; session['was_logged_in']=True
 
     def blocked(ip):
-        now=time.monotonic()
-        with failure_lock:
-            failures[ip]=[t for t in failures[ip] if now-t<60]
-            return len(failures[ip])>=8
+        return ratelimit.blocked(server.conn,'login',ip,LOGIN_LIMIT,LOGIN_WINDOW)
 
     def record_failure(ip):
-        with failure_lock: failures[ip].append(time.monotonic())
+        ratelimit.record(server.conn,'login',ip,LOGIN_WINDOW)
         time.sleep(0.4)  # ralentit les essais automatisés
 
     def logged_in(record):
@@ -165,7 +160,7 @@ def create_app():
             record_failure(ip)
             return redirect('/login?m=identifiants',303)
         remember(record)
-        with failure_lock: failures.pop(ip,None)
+        ratelimit.clear(server.conn,'login',ip)
         open_session(record,request.form.get('remember')=='1')
         return redirect('/',303)
 
@@ -189,7 +184,7 @@ def create_app():
         if problem: return redirect('/signup?m='+problem,303)
         record=auth.register(server.conn,username,password)
         if not record: return redirect('/signup?m=pris',303)
-        with failure_lock: signups[ip].append(time.monotonic())
+        ratelimit.record(server.conn,'signup',ip,SIGNUP_WINDOW)
         remember(record); open_session(record,True)
         return redirect('/',303)
 

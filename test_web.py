@@ -148,6 +148,21 @@ class WebTests(unittest.TestCase):
         visitor=self.visitor()
         for _ in range(8): visitor.post('/login',data={'username':'louis','password':'faux'})
         self.assertIn('m=bloque',visitor.post('/login',data={'username':'louis','password':PASSWORD}).headers['Location'])
+        # Une connexion réussie efface le compteur de l'adresse.
+        import ratelimit
+        ratelimit.clear(server.conn,'login','127.0.0.1')
+        self.assertFalse(ratelimit.blocked(server.conn,'login','127.0.0.1',8,60))
+
+    def test_brute_force_limit_is_shared_between_processes(self):
+        # Reproduit l'incident de production : chaque processus web a sa propre mémoire.
+        # Le compteur étant en base, les échecs de deux instances s'additionnent.
+        app_a=create_app(); server.AUTO_TRANSLATE=False
+        app_b=create_app(); server.AUTO_TRANSLATE=False
+        for _ in range(4): app_a.test_client().post('/login',data={'username':'louis','password':'faux'})
+        for _ in range(4): app_b.test_client().post('/login',data={'username':'louis','password':'faux'})
+        # La 9e tentative, sur une 3e instance, est déjà bloquée.
+        third=create_app().test_client(); server.AUTO_TRANSLATE=False
+        self.assertIn('m=bloque',third.post('/login',data={'username':'louis','password':PASSWORD}).headers['Location'])
 
     def test_change_password_invalidates_other_sessions(self):
         other=self.visitor(); other.post('/login',data={'username':'louis','password':PASSWORD})
