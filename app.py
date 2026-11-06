@@ -39,7 +39,7 @@ def create_app():
                       SESSION_COOKIE_SAMESITE='Lax',SESSION_COOKIE_SECURE=production,
                       PERMANENT_SESSION_LIFETIME=timedelta(days=30))
     # Nettoyage unique des comptes de test créés pendant l'audit de sécurité (à retirer ensuite).
-    try: auth.purge_test_accounts(server.conn,('sonde','audit-securite','test-'))
+    try: auth.purge_test_accounts(server.conn,('sonde','probe','audit-securite','test-'))
     except Exception: pass
     if os.environ.get('RENDER'):
         app.wsgi_app=ProxyFix(app.wsgi_app,x_for=1,x_proto=1)
