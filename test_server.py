@@ -6,6 +6,9 @@ class Tests(unittest.TestCase):
     def setUp(self):
         self.environment=patch.dict(server.os.environ,{'DATABASE_URL':'','APP_ENV':'test','RENDER':''})
         self.environment.start()
+        # L'import de app.py active la traduction automatique : la couper évite qu'un fil
+        # d'arrière-plan lancé par un test précédent appelle le traducteur pendant celui-ci.
+        server.AUTO_TRANSLATE=False
         self.previous=server.DB
         server.DB=server.ROOT/('test-'+uuid.uuid4().hex+'.sqlite3'); server.init()
     def tearDown(self):
