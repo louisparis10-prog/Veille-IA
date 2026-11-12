@@ -10,6 +10,7 @@ from flask import Flask, jsonify, redirect, request, send_from_directory, sessio
 from werkzeug.middleware.proxy_fix import ProxyFix
 import auth
 import ratelimit
+import seclog
 import server
 
 # Seuils de limitation, partagés entre tous les processus via la base (voir ratelimit.py).
@@ -117,15 +118,35 @@ def create_app():
         if xff: return xff.split(',')[0].strip()
         return request.remote_addr or '?'
 
+    def watch_for_tools(viewer):
+        """Journalise (pour l'admin) l'accès d'un outil d'IA qui s'annonce. Jamais bloquant, jamais visible."""
+        tool=seclog.detect(request.headers.get('User-Agent'))
+        if not tool: return
+        user=viewer['username'] if viewer else '?'
+        try:
+            signature=user.lower()+'|'+tool
+            # Une seule entrée par compte et par outil toutes les heures, pour ne pas inonder le journal.
+            if ratelimit.blocked(server.conn,'seclog',signature,1,3600): return
+            ratelimit.record(server.conn,'seclog',signature,3600)
+            seclog.record(server.conn,{'t':time.time(),'user':user,'tool':tool,
+                                       'ip':client_ip(),'ua':(request.headers.get('User-Agent') or '')[:300],
+                                       'path':request.path})
+        except Exception:
+            pass  # la surveillance ne doit jamais perturber une requête
+
     @app.before_request
     def protect():
         if request.path in PUBLIC_PATHS: return None
         if not account():
             if request.path.startswith('/api/'): return jsonify(error='Créez votre accès pour commencer.',setup=True),401
             return redirect('/setup')
-        if not logged_in(current()):
+        viewer=current()
+        if not logged_in(viewer):
             if request.path.startswith('/api/'): return jsonify(error='Session expirée. Reconnectez-vous.',login=True),401
             return redirect('/login?m=expire' if session.get('was_logged_in') else '/login')
+        # Détection silencieuse d'un outil d'IA / d'automatisation (n'affecte ni ne montre rien au visiteur).
+        if request.path in ('/','/api/state') and not is_admin(viewer):
+            watch_for_tools(viewer)
         if request.method=='POST':
             if request.headers.get('Origin')!=request.host_url.rstrip('/'):
                 return jsonify(error='Origine de la requête non autorisée.'),403
@@ -215,6 +236,11 @@ def create_app():
     def accounts():
         if not is_admin(current()): return jsonify(error='Réservé à l’administrateur.'),403
         return jsonify(members=auth.members(server.conn),signup_open=auth.signup_open(server.conn))
+
+    @app.get('/api/seclog')
+    def security_log():
+        if not is_admin(current()): return jsonify(error='Réservé à l’administrateur.'),403
+        return jsonify(events=seclog.recent(server.conn,100))
 
     @app.post('/api/accounts')
     def manage_accounts():

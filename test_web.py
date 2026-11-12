@@ -128,6 +128,26 @@ class WebTests(unittest.TestCase):
         self.assertIn('m=bloque',blocked.headers['Location'])
         self.assertIsNone(auth.find(server.conn,'nouveau'))  # aucune inscription pendant le blocage
 
+    def test_ai_tool_access_is_logged_silently_for_admin(self):
+        member=self.visitor()
+        member.post('/signup',data={'username':'marie','password':'autre-mot-de-passe','confirm':'autre-mot-de-passe'})
+        ai={'User-Agent':'Mozilla/5.0 (Windows NT 10.0) Claude/4.1 Chrome/152 Safari/537'}
+        # La requête aboutit normalement : rien n'est bloqué, rien n'est renvoyé de différent.
+        self.assertEqual(member.get('/api/state',headers=ai).status_code,200)
+        member.get('/api/state',headers=ai)  # deuxième visite : dédoublonnée
+        # Un membre n'a pas accès au journal ; l'administrateur voit une seule entrée.
+        self.assertEqual(member.get('/api/seclog').status_code,403)
+        events=self.client.get('/api/seclog').json['events']
+        self.assertEqual(len(events),1)
+        self.assertEqual(events[0]['user'],'marie'); self.assertEqual(events[0]['tool'],'Claude')
+        # Les visites de l'administrateur lui-même ne sont pas journalisées.
+        self.client.get('/api/state',headers=ai)
+        self.assertEqual(len(self.client.get('/api/seclog').json['events']),1)
+        # Un navigateur ordinaire n'est pas journalisé.
+        paul=self.visitor(); paul.post('/signup',data={'username':'paul','password':'un-bon-mot-de-passe','confirm':'un-bon-mot-de-passe'})
+        paul.get('/api/state',headers={'User-Agent':'Mozilla/5.0 (Macintosh) Chrome/152 Safari/537'})
+        self.assertEqual(len(self.client.get('/api/seclog').json['events']),1)
+
     def test_member_changes_own_password(self):
         member=self.visitor()
         member.post('/signup',data={'username':'marie','password':'autre-mot-de-passe','confirm':'autre-mot-de-passe'})
