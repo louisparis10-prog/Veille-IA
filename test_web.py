@@ -128,25 +128,29 @@ class WebTests(unittest.TestCase):
         self.assertIn('m=bloque',blocked.headers['Location'])
         self.assertIsNone(auth.find(server.conn,'nouveau'))  # aucune inscription pendant le blocage
 
-    def test_ai_tool_access_is_logged_silently_for_admin(self):
+    def test_ai_tool_activity_is_detailed_for_admin(self):
         member=self.visitor()
         member.post('/signup',data={'username':'marie','password':'autre-mot-de-passe','confirm':'autre-mot-de-passe'})
         ai={'User-Agent':'Mozilla/5.0 (Windows NT 10.0) Claude/4.1 Chrome/152 Safari/537'}
-        # La requête aboutit normalement : rien n'est bloqué, rien n'est renvoyé de différent.
+        # Les requêtes aboutissent normalement : rien n'est bloqué.
         self.assertEqual(member.get('/api/state',headers=ai).status_code,200)
-        member.get('/api/state',headers=ai)  # deuxième visite : dédoublonnée
-        # Un membre n'a pas accès au journal ; l'administrateur voit une seule entrée.
+        member.get('/api/state',headers=ai)  # même action < 60s : dédoublonnée
+        member.post('/api/item',json={'title':'Idée scannée','stage':'Idée'},headers={**ai,'Origin':'http://localhost'})
+        # Un membre n'a pas accès au journal ; l'administrateur voit le détail des actions.
         self.assertEqual(member.get('/api/seclog').status_code,403)
         events=self.client.get('/api/seclog').json['events']
-        self.assertEqual(len(events),1)
-        self.assertEqual(events[0]['user'],'marie'); self.assertEqual(events[0]['tool'],'Claude')
+        labels={e['label'] for e in events}
+        self.assertIn('Consultation du contenu',labels)
+        self.assertIn('Idée créée ou modifiée',labels)
+        self.assertTrue(all(e['user']=='marie' and e['tool']=='Claude' for e in events))
+        before=len(events)
         # Les visites de l'administrateur lui-même ne sont pas journalisées.
         self.client.get('/api/state',headers=ai)
-        self.assertEqual(len(self.client.get('/api/seclog').json['events']),1)
+        self.assertEqual(len(self.client.get('/api/seclog').json['events']),before)
         # Un navigateur ordinaire n'est pas journalisé.
         paul=self.visitor(); paul.post('/signup',data={'username':'paul','password':'un-bon-mot-de-passe','confirm':'un-bon-mot-de-passe'})
         paul.get('/api/state',headers={'User-Agent':'Mozilla/5.0 (Macintosh) Chrome/152 Safari/537'})
-        self.assertEqual(len(self.client.get('/api/seclog').json['events']),1)
+        self.assertEqual(len(self.client.get('/api/seclog').json['events']),before)
 
     def test_member_changes_own_password(self):
         member=self.visitor()

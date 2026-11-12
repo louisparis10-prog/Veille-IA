@@ -81,3 +81,10 @@ body.dark .status.hot{background:#43261a;color:#ffb38a}body.dark .status.on{back
 .accounts{list-style:none;padding:0;margin:14px 0 0;display:grid;gap:8px}
 .accounts li{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:10px}
 .accounts li span{display:grid}.accounts li small{color:var(--muted);font-size:12px}
+.seclog-item{border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-top:10px}
+.seclog-head b{font-weight:700}
+.seclog-acts{list-style:none;padding:0;margin:8px 0 6px;display:grid;gap:4px}
+.seclog-acts li{font-size:14px;padding-left:14px;position:relative}
+.seclog-acts li::before{content:"•";position:absolute;left:0;color:var(--must)}
+.seclog-acts em{font-style:normal;color:var(--muted);font-size:12px}
+.seclog-item small{word-break:break-all}

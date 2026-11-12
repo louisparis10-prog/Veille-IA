@@ -118,17 +118,36 @@ def create_app():
         if xff: return xff.split(',')[0].strip()
         return request.remote_addr or '?'
 
+    ACTION_LABELS={
+        ('GET','/'):'Ouverture de l’application',
+        ('GET','/api/state'):'Consultation du contenu',
+        ('POST','/api/sync'):'Lancement d’une collecte',
+        ('POST','/api/article'):'Article marqué (lu / favori)',
+        ('POST','/api/item'):'Idée créée ou modifiée',
+        ('POST','/api/settings'):'Modification du profil',
+        ('POST','/api/password'):'Changement de mot de passe',
+        ('GET','/api/accounts'):'Tentative d’accès à l’administration',
+        ('GET','/api/seclog'):'Tentative d’accès au journal',
+    }
+
+    def action_label():
+        key=(request.method,request.path)
+        if key in ACTION_LABELS: return ACTION_LABELS[key]
+        if request.path.startswith('/api/'): return request.method+' '+request.path
+        return 'Page '+request.path
+
     def watch_for_tools(viewer):
-        """Journalise (pour l'admin) l'accès d'un outil d'IA qui s'annonce. Jamais bloquant, jamais visible."""
+        """Journalise (pour l'admin) l'activité d'un outil d'IA qui s'annonce. Jamais bloquant, jamais visible."""
         tool=seclog.detect(request.headers.get('User-Agent'))
         if not tool: return
         user=viewer['username'] if viewer else '?'
+        label=action_label()
         try:
-            signature=user.lower()+'|'+tool
-            # Une seule entrée par compte et par outil toutes les heures, pour ne pas inonder le journal.
-            if ratelimit.blocked(server.conn,'seclog',signature,1,3600): return
-            ratelimit.record(server.conn,'seclog',signature,3600)
-            seclog.record(server.conn,{'t':time.time(),'user':user,'tool':tool,
+            # Une entrée par action distincte et par minute : on détaille l'activité sans inonder le journal.
+            signature=user.lower()+'|'+tool+'|'+label
+            if ratelimit.blocked(server.conn,'seclog',signature,1,60): return
+            ratelimit.record(server.conn,'seclog',signature,60)
+            seclog.record(server.conn,{'t':time.time(),'user':user,'tool':tool,'label':label,
                                        'ip':client_ip(),'ua':(request.headers.get('User-Agent') or '')[:300],
                                        'path':request.path})
         except Exception:
@@ -145,7 +164,7 @@ def create_app():
             if request.path.startswith('/api/'): return jsonify(error='Session expirée. Reconnectez-vous.',login=True),401
             return redirect('/login?m=expire' if session.get('was_logged_in') else '/login')
         # Détection silencieuse d'un outil d'IA / d'automatisation (n'affecte ni ne montre rien au visiteur).
-        if request.path in ('/','/api/state') and not is_admin(viewer):
+        if not is_admin(viewer) and (request.path=='/' or request.path.startswith('/api/')):
             watch_for_tools(viewer)
         if request.method=='POST':
             if request.headers.get('Origin')!=request.host_url.rstrip('/'):
