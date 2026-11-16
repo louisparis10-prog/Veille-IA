@@ -261,6 +261,40 @@ def create_app():
         if not is_admin(current()): return jsonify(error='Réservé à l’administrateur.'),403
         return jsonify(events=seclog.recent(server.conn,100))
 
+    @app.get('/api/safety')
+    def safety_list():
+        viewer=current()
+        if not viewer: return jsonify(error='Connexion requise.'),401
+        return jsonify(analyses=server.load_safety(viewer['username']))
+
+    @app.post('/api/safety')
+    def safety_save():
+        viewer=current()
+        if not viewer: return jsonify(error='Connexion requise.'),401
+        user=viewer['username']
+        body=request.get_json()
+        if not isinstance(body,dict): return jsonify(error='Données invalides.'),400
+        analyses=server.load_safety(user)
+        action=body.get('action')
+        if action=='save':
+            payload=body.get('analysis')
+            if not isinstance(payload,dict): return jsonify(error='Analyse invalide.'),400
+            ident=str(payload.get('id') or '')[:40] or 'a'+str(int(time.time()*1000))
+            kind=payload.get('type') if payload.get('type') in ('flash','arbre') else 'flash'
+            data=payload.get('data') if isinstance(payload.get('data'),dict) else {}
+            entry={'id':ident,'type':kind,'title':str(payload.get('title') or 'Analyse sécurité')[:200],
+                   'when':str(payload.get('when') or '')[:40],'data':data,'updated':time.time()}
+            if len(json.dumps(entry))>80000: return jsonify(error='Analyse trop volumineuse.'),413
+            analyses=[a for a in analyses if a.get('id')!=ident]
+            analyses.insert(0,entry); analyses=analyses[:100]
+            server.save_safety(user,analyses)
+            return jsonify(ok=True,id=ident,analyses=analyses)
+        if action=='delete':
+            analyses=[a for a in analyses if a.get('id')!=str(body.get('id') or '')]
+            server.save_safety(user,analyses)
+            return jsonify(ok=True,analyses=analyses)
+        return jsonify(error='Action inconnue.'),400
+
     @app.post('/api/accounts')
     def manage_accounts():
         if not is_admin(current(force=True)): return jsonify(error='Réservé à l’administrateur.'),403

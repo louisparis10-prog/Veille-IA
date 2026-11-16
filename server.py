@@ -473,6 +473,17 @@ def save_space(user,space):
     with conn() as c:
         c.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',(space_key(user),json.dumps(space,ensure_ascii=False)))
 
+# Module Sécurité : analyses d'accident, propres à chaque utilisateur (clé « safety:<identifiant> »).
+def safety_key(user): return 'safety:'+(user or '').strip().lower()
+def load_safety(user):
+    with conn() as c: row=c.execute('SELECT value FROM settings WHERE key=?',(safety_key(user),)).fetchone()
+    try: data=json.loads(row['value']) if row else []
+    except Exception: data=[]
+    return data if isinstance(data,list) else []
+def save_safety(user,analyses):
+    with conn() as c:
+        c.execute('INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value',(safety_key(user),json.dumps(analyses,ensure_ascii=False)))
+
 def member_action(path,b,member):
     space=load_space(member)
     if path=='/api/article':
