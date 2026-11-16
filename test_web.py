@@ -152,25 +152,6 @@ class WebTests(unittest.TestCase):
         paul.get('/api/state',headers={'User-Agent':'Mozilla/5.0 (Macintosh) Chrome/152 Safari/537'})
         self.assertEqual(len(self.client.get('/api/seclog').json['events']),before)
 
-    def test_safety_analyses_are_private_per_user(self):
-        saved=self.client.post('/api/safety',json={'action':'save','analysis':{'id':'x1','type':'flash','title':'Coupure au doigt','when':'2026-11-16','data':{'typo':{'contact':'Coupure'}}}},headers=self.headers)
-        self.assertEqual(saved.status_code,200)
-        self.assertEqual([a['id'] for a in self.client.get('/api/safety').json['analyses']],['x1'])
-        # Un autre compte ne voit pas l'analyse de l'admin et garde la sienne.
-        member=self.visitor(); member.post('/signup',data={'username':'marie','password':'autre-mot-de-passe','confirm':'autre-mot-de-passe'})
-        self.assertEqual(member.get('/api/safety').json['analyses'],[])
-        member.post('/api/safety',json={'action':'save','analysis':{'id':'m1','title':'Chute','data':{}}},headers=self.headers)
-        self.assertEqual([a['id'] for a in member.get('/api/safety').json['analyses']],['m1'])
-        self.assertEqual([a['id'] for a in self.client.get('/api/safety').json['analyses']],['x1'])
-        # Mise à jour par identifiant (pas de doublon), puis suppression.
-        self.client.post('/api/safety',json={'action':'save','analysis':{'id':'x1','title':'Coupure (corrigée)','data':{}}},headers=self.headers)
-        a=self.client.get('/api/safety').json['analyses']
-        self.assertEqual(len(a),1); self.assertEqual(a[0]['title'],'Coupure (corrigée)')
-        self.client.post('/api/safety',json={'action':'delete','id':'x1'},headers=self.headers)
-        self.assertEqual(self.client.get('/api/safety').json['analyses'],[])
-        # Accès refusé sans session.
-        self.assertEqual(self.visitor().get('/api/safety').status_code,401)
-
     def test_member_changes_own_password(self):
         member=self.visitor()
         member.post('/signup',data={'username':'marie','password':'autre-mot-de-passe','confirm':'autre-mot-de-passe'})

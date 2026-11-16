@@ -1,7 +1,6 @@
 """Point d'entrée WSGI Render : page de connexion et compte gérés par l'application."""
 import hashlib
 import hmac
-import json
 import os
 import threading
 import time
@@ -18,8 +17,7 @@ import server
 LOGIN_LIMIT, LOGIN_WINDOW = 8, 60       # 8 échecs de connexion par minute et par adresse IP
 SIGNUP_LIMIT, SIGNUP_WINDOW = 8, 3600   # 8 tentatives d'inscription par heure et par adresse IP
 
-PUBLIC_PATHS = {'/healthz', '/login', '/setup', '/signup', '/version'}
-BUILD = 'securite-1'  # marqueur de version, visible sur /version pour confirmer le déploiement
+PUBLIC_PATHS = {'/healthz', '/login', '/setup', '/signup'}
 
 def create_app():
     server.AUTO_TRANSLATE=not os.environ.get('DISABLE_AUTO_TRANSLATE')
@@ -263,40 +261,6 @@ def create_app():
         if not is_admin(current()): return jsonify(error='Réservé à l’administrateur.'),403
         return jsonify(events=seclog.recent(server.conn,100))
 
-    @app.get('/api/safety')
-    def safety_list():
-        viewer=current()
-        if not viewer: return jsonify(error='Connexion requise.'),401
-        return jsonify(analyses=server.load_safety(viewer['username']))
-
-    @app.post('/api/safety')
-    def safety_save():
-        viewer=current()
-        if not viewer: return jsonify(error='Connexion requise.'),401
-        user=viewer['username']
-        body=request.get_json()
-        if not isinstance(body,dict): return jsonify(error='Données invalides.'),400
-        analyses=server.load_safety(user)
-        action=body.get('action')
-        if action=='save':
-            payload=body.get('analysis')
-            if not isinstance(payload,dict): return jsonify(error='Analyse invalide.'),400
-            ident=str(payload.get('id') or '')[:40] or 'a'+str(int(time.time()*1000))
-            kind=payload.get('type') if payload.get('type') in ('flash','arbre') else 'flash'
-            data=payload.get('data') if isinstance(payload.get('data'),dict) else {}
-            entry={'id':ident,'type':kind,'title':str(payload.get('title') or 'Analyse sécurité')[:200],
-                   'when':str(payload.get('when') or '')[:40],'data':data,'updated':time.time()}
-            if len(json.dumps(entry))>80000: return jsonify(error='Analyse trop volumineuse.'),413
-            analyses=[a for a in analyses if a.get('id')!=ident]
-            analyses.insert(0,entry); analyses=analyses[:100]
-            server.save_safety(user,analyses)
-            return jsonify(ok=True,id=ident,analyses=analyses)
-        if action=='delete':
-            analyses=[a for a in analyses if a.get('id')!=str(body.get('id') or '')]
-            server.save_safety(user,analyses)
-            return jsonify(ok=True,analyses=analyses)
-        return jsonify(error='Action inconnue.'),400
-
     @app.post('/api/accounts')
     def manage_accounts():
         if not is_admin(current(force=True)): return jsonify(error='Réservé à l’administrateur.'),403
@@ -351,27 +315,8 @@ def create_app():
         except Exception:
             return jsonify(status='unavailable'),503
 
-    def asset_version():
-        # Empreinte des fichiers statiques : change à chaque déploiement, force le rechargement
-        # de app.js / style.css même si un cache (Cloudflare) garde l'ancienne version.
-        try:
-            h=hashlib.sha1()
-            for f in ('app.js','style.css'):
-                h.update(str((server.ROOT/'public'/f).stat().st_mtime_ns).encode())
-            return h.hexdigest()[:8]
-        except Exception:
-            return '1'
-
-    @app.get('/version')
-    def version():
-        return jsonify(build=BUILD, assets=asset_version())
-
     @app.get('/')
-    def home():
-        html=(server.ROOT/'public'/'index.html').read_text(encoding='utf-8')
-        v=asset_version()
-        html=html.replace('/app.js','/app.js?v='+v).replace('/style.css','/style.css?v='+v)
-        return app.response_class(html, mimetype='text/html')
+    def home(): return send_from_directory(server.ROOT/'public','index.html')
 
     @app.get('/<name>')
     def asset(name):
