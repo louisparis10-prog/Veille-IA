@@ -18,7 +18,8 @@ import server
 LOGIN_LIMIT, LOGIN_WINDOW = 8, 60       # 8 échecs de connexion par minute et par adresse IP
 SIGNUP_LIMIT, SIGNUP_WINDOW = 8, 3600   # 8 tentatives d'inscription par heure et par adresse IP
 
-PUBLIC_PATHS = {'/healthz', '/login', '/setup', '/signup'}
+PUBLIC_PATHS = {'/healthz', '/login', '/setup', '/signup', '/version'}
+BUILD = 'securite-1'  # marqueur de version, visible sur /version pour confirmer le déploiement
 
 def create_app():
     server.AUTO_TRANSLATE=not os.environ.get('DISABLE_AUTO_TRANSLATE')
@@ -350,8 +351,27 @@ def create_app():
         except Exception:
             return jsonify(status='unavailable'),503
 
+    def asset_version():
+        # Empreinte des fichiers statiques : change à chaque déploiement, force le rechargement
+        # de app.js / style.css même si un cache (Cloudflare) garde l'ancienne version.
+        try:
+            h=hashlib.sha1()
+            for f in ('app.js','style.css'):
+                h.update(str((server.ROOT/'public'/f).stat().st_mtime_ns).encode())
+            return h.hexdigest()[:8]
+        except Exception:
+            return '1'
+
+    @app.get('/version')
+    def version():
+        return jsonify(build=BUILD, assets=asset_version())
+
     @app.get('/')
-    def home(): return send_from_directory(server.ROOT/'public','index.html')
+    def home():
+        html=(server.ROOT/'public'/'index.html').read_text(encoding='utf-8')
+        v=asset_version()
+        html=html.replace('/app.js','/app.js?v='+v).replace('/style.css','/style.css?v='+v)
+        return app.response_class(html, mimetype='text/html')
 
     @app.get('/<name>')
     def asset(name):
